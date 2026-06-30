@@ -35,7 +35,11 @@
 <div class="modal" id="userModal"><div class="modalbox"><div class="modalTop"><h2 id="userModalTitle">ユーザー編集</h2><button class="iconbtn" onclick="closeUserModal()">閉じる</button></div><div class="form"><input id="uLogin" placeholder="ログインID"><input id="uPassword" placeholder="パスワード"><input id="uName" placeholder="名前"><select id="uRole"></select><div class="checkgrid" id="uStores"></div><button class="primary" id="saveUserBtn">保存</button></div></div></div>
 <div class="modal" id="incidentModal"><div class="modalbox large"><div class="modalTop"><h2 id="incidentModalTitle">インシデント詳細</h2><button class="iconbtn" onclick="closeIncidentModal()">閉じる</button></div>
 <div class="form">
-<select id="iStore"></select><input id="iRoom" list="roomsData" placeholder="部屋番号"><input id="iTitle" placeholder="件名"><select id="iStatus"><option value="open">未対応</option><option value="progress">対応中</option><option value="done">対応完了</option></select><input id="iPerson" placeholder="担当者"><label class="small">発生日<input id="iDate" type="date"></label><textarea id="iMemo" placeholder="メモ"></textarea>
+<select id="iStore"></select><input id="iRoom" list="roomsData" placeholder="部屋番号"><input id="iTitle" placeholder="件名"><select id="iStatus"><option value="open">未対応</option><option value="progress">対応中</option><option value="done">対応完了</option></select><input id="iPerson" placeholder="担当者"><label class="small">発生日<input id="iDate" type="date"></label><textarea id="iMemo" placeholder="メモ"></textarea><label class="small">
+  登録時の写真・動画
+  <input id="iMediaFiles" type="file" accept="image/*,video/*" multiple>
+</label>
+<div id="incidentMedia" class="incidentMediaGrid"></div>
 <div class="small">詳細画面ではホテル・部屋番号・件名・状況・担当者・発生日は固定表示です。状況は経過状況で自動更新されます。</div>
 <div class="actions"><button class="primary" id="saveIncidentBtn">保存</button><button class="danger" id="deleteIncidentBtn">削除</button></div>
 </div>
@@ -194,7 +198,49 @@ function openIncidentModal(id){
   $('incidentModal').classList.add('show');
 }
 function closeIncidentModal(){$('incidentModal').classList.remove('show');}
-async function saveIncident(){let data={storeId:$('iStore').value,room:$('iRoom').value.trim(),title:$('iTitle').value.trim(),status:$('iStatus').value,person:$('iPerson').value.trim(),date:$('iDate').value,memo:$('iMemo').value.trim()}; if(!data.storeId||!data.title)return alert('店舗と件名を入力してください'); if(editingIncidentId){let i=db.incidents.find(x=>String(x.id)===String(editingIncidentId)); if(i){normalizeIncident(i); i.memo=data.memo;}} else {let obj=Object.assign({id:'i'+Date.now(),amount:'',completeDate:'',media:[],progress:[]},data); db.incidents.push(obj); editingIncidentId=obj.id;} save(); openIncidentModal(editingIncidentId); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
+async function saveIncident(){
+  let data={
+    storeId:$('iStore').value,
+    room:$('iRoom').value.trim(),
+    title:$('iTitle').value.trim(),
+    status:$('iStatus').value,
+    person:$('iPerson').value.trim(),
+    date:$('iDate').value,
+    memo:$('iMemo').value.trim()
+  };
+
+  if(!data.storeId||!data.title)return alert('店舗と件名を入力してください');
+
+  let newMedia = await readMediaFiles($('iMediaFiles'));
+
+  if(editingIncidentId){
+    let i=db.incidents.find(x=>String(x.id)===String(editingIncidentId));
+    if(i){
+      normalizeIncident(i);
+      i.memo=data.memo;
+      if(newMedia.length){
+        i.media.push(...newMedia);
+      }
+    }
+  }else{
+    let obj=Object.assign({
+      id:'i'+Date.now(),
+      amount:'',
+      completeDate:'',
+      media:newMedia,
+      progress:[]
+    },data);
+
+    db.incidents.push(obj);
+    editingIncidentId=obj.id;
+  }
+
+  save();
+  openIncidentModal(editingIncidentId);
+  renderIncidents();
+  if(currentTab==='archive')renderArchive();
+  renderDashboard();
+}
 function deleteIncident(){if(!editingIncidentId)return; if(!confirm('このインシデントを削除しますか？'))return; db.incidents=db.incidents.filter(x=>String(x.id)!==String(editingIncidentId)); save(); closeIncidentModal(); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
 function deleteIncidentMedia(idx){let inc=currentIncident(); if(!inc)return; normalizeIncident(inc); inc.media.splice(idx,1); save(); renderIncidentMedia(inc); renderIncidents();}
 async function addIncidentProgress(){let inc=currentIncident(); if(!inc)return alert('先にインシデントを保存してください'); normalizeIncident(inc); let text=$('ipText').value.trim(); let status=$('ipStatus').value; let media=await readIncidentProgressMedia(); let amount=status==='done'?Number($('ipAmount').value||0):0; let entry={id:'p'+Date.now(),date:$('ipDate').value||new Date().toISOString().slice(0,10),person:$('ipPerson').value.trim(),status,text,amount,media}; inc.progress.push(entry); inc.status=entry.status||inc.status; if(entry.status==='done'){inc.completeDate=entry.date; inc.amount=amount;} save(); openIncidentModal(inc.id); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
