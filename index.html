@@ -86,12 +86,17 @@ async function login(){
   currentUser=u;
   currentStoreId=visibleStores()[0]?.id||null;
 
-  await loadIncidentsFromFirestore();
-
   $('loginView').classList.add('hidden');
   $('appView').classList.remove('hidden');
 
   render();
+
+  try{
+    await loadIncidentsFromFirestore();
+    render();
+  }catch(e){
+    console.warn('Firestore load skipped', e);
+  }
 }
 function logout(){currentUser=null; localStorage.removeItem('lastUser'); $('appView').classList.add('hidden'); $('loginView').classList.remove('hidden');}
 function render(){if(!currentUser)return; let tabs=allowedTabs(); if(!tabs.some(t=>t[0]===currentTab)) currentTab=tabs[0][0]; $('nav').innerHTML=tabs.map(t=>`<button class="${currentTab===t[0]?'active':''}" onclick="setTab('${t[0]}')"><b>${t[1]}</b>${t[2]}</button>`).join(''); $('pageTitle').textContent=tabs.find(t=>t[0]===currentTab)?.[2]||''; let stores=visibleStores(); let hideStoreBar=currentTab==='stores'||currentTab==='users'; $('storeSelect').parentElement.classList.toggle('hidden',hideStoreBar); if(currentTab==='incidents'||currentTab==='archive'){if(!currentStoreId||(!stores.some(s=>s.id===currentStoreId)&&currentStoreId!=='all'))currentStoreId='all'; $('storeSelect').innerHTML='<option value="all">全店舗</option>'+stores.map(s=>`<option value="${s.id}">${s.name}</option>`).join(''); $('brand').textContent=currentStoreId==='all'?'全店舗':(storeById(currentStoreId)?.name||'HOTEL').slice(0,5);} else {if(!stores.some(s=>s.id===currentStoreId))currentStoreId=stores[0]?.id||null; $('storeSelect').innerHTML=stores.map(s=>`<option value="${s.id}">${s.name}</option>`).join(''); $('brand').textContent=(storeById(currentStoreId)?.name||'HOTEL').slice(0,5);} $('storeSelect').value=currentStoreId||''; ['dashboard','incidents','archive','aircon','stores','users','reports'].forEach(v=>$(v+'View')?.classList.add('hidden')); $(currentTab+'View')?.classList.remove('hidden'); updateIncidentTabs(); renderRoomsData(); renderActions(); if(currentTab==='aircon')renderAircon(); if(currentTab==='dashboard')renderDashboard(); if(currentTab==='stores')renderStores(); if(currentTab==='users')renderUsers(); if(currentTab==='reports')renderReports(); if(currentTab==='incidents')renderIncidents(); if(currentTab==='archive')renderArchive();}
@@ -164,31 +169,26 @@ let editingIncidentId=null;
 function formatYen(v){let n=Number(v||0); return n?('¥'+n.toLocaleString()):'-';}
 function fileToDataURL(file){return new Promise((resolve,reject)=>{let r=new FileReader(); r.onload=()=>resolve({id:'m'+Date.now()+Math.random().toString(36).slice(2),name:file.name,type:file.type,url:r.result}); r.onerror=reject; r.readAsDataURL(file);});}
 async function readMediaFiles(input){
-
   const files=[...(input?.files||[])];
   const media=[];
 
   for(const file of files){
+    const fileName=`incident/${Date.now()}_${Math.random().toString(36).slice(2)}_${file.name}`;
+    const storageRef=window.firebaseStorageRef(window.firebaseStorage,fileName);
 
-    const fileRef = ref(
-      window.firebaseStorage,
-      `incident/${Date.now()}_${file.name}`
-    );
-
-    await uploadBytes(fileRef,file);
-
-    const url=await getDownloadURL(fileRef);
+    await window.firebaseUploadBytes(storageRef,file);
+    const url=await window.firebaseGetDownloadURL(storageRef);
 
     media.push({
+      id:'m'+Date.now()+Math.random().toString(36).slice(2),
       type:file.type.startsWith("video")?"video":"image",
       url:url,
       name:file.name
     });
-
   }
 
+  if(input)input.value='';
   return media;
-
 }
 async function readIncidentProgressMedia(){let media=[]; for(let id of ['ipMediaFiles','ipCameraPhoto','ipCameraVideo'])media.push(...await readMediaFiles($(id))); return media;}
 function mediaHTML(m,del){let isVideo=(m.type||'').startsWith('video/'); return `<div class="incidentMediaItem">${isVideo?`<video controls src="${m.url}"></video>`:`<img src="${m.url}" alt="${safeText(m.name||'添付')}">`}<div class="small">${safeText(m.name||'添付')}</div>${del?`<button class="danger" type="button" onclick="${del}">削除</button>`:''}</div>`;}
@@ -295,34 +295,41 @@ async function saveIncidentToFirestore(id){
   const inc = db.incidents.find(x=>String(x.id)===String(id));
   if(!inc)return;
 
-  await window.firebaseSetDoc(
-    window.firebaseDoc(window.firebaseDb, "incidents", String(inc.id)),
-    inc
-  );
+  try{
+    await window.firebaseSetDoc(
+      window.firebaseDoc(window.firebaseDb, "incidents", String(inc.id)),
+      inc
+    );
+  }catch(e){
+    console.error('Firestore save error', e);
+    alert('インシデントはこの端末には保存されましたが、共有保存に失敗しました。Firebaseのルールを確認してください。');
+  }
 }
 async function loadIncidentsFromFirestore(){
-
   if(!window.firebaseDb || !window.firebaseCollection || !window.firebaseGetDocs)return;
 
-  const snap = await window.firebaseGetDocs(
-    window.firebaseCollection(window.firebaseDb,"incidents")
-  );
+  try{
+    const snap = await window.firebaseGetDocs(
+      window.firebaseCollection(window.firebaseDb,"incidents")
+    );
 
-  db.incidents = [];
+    const firebaseIncidents=[];
+    snap.forEach(docSnap=>{
+      const inc=docSnap.data();
+      if(inc && inc.id)firebaseIncidents.push(inc);
+    });
 
-  snap.forEach(doc=>{
-    db.incidents.push(doc.data());
-  });
-
-  save();
-  renderDashboard();
-  renderIncidents();
-  if(currentTab==="archive")renderArchive();
-
+    if(firebaseIncidents.length){
+      db.incidents=firebaseIncidents;
+      save();
+    }
+  }catch(e){
+    console.warn('Firestore load error', e);
+  }
 }
 function deleteIncident(){if(!editingIncidentId)return; if(!confirm('このインシデントを削除しますか？'))return; db.incidents=db.incidents.filter(x=>String(x.id)!==String(editingIncidentId)); save(); closeIncidentModal(); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
 function deleteIncidentMedia(idx){let inc=currentIncident(); if(!inc)return; normalizeIncident(inc); inc.media.splice(idx,1); save(); renderIncidentMedia(inc); renderIncidents();}
-async function addIncidentProgress(){let inc=currentIncident(); if(!inc)return alert('先にインシデントを保存してください'); normalizeIncident(inc); let text=$('ipText').value.trim(); let status=$('ipStatus').value; let media=await readIncidentProgressMedia(); let amount=status==='done'?Number($('ipAmount').value||0):0; let entry={id:'p'+Date.now(),date:$('ipDate').value||new Date().toISOString().slice(0,10),person:$('ipPerson').value.trim(),status,text,amount,media}; inc.progress.push(entry); inc.status=entry.status||inc.status; if(entry.status==='done'){inc.completeDate=entry.date; inc.amount=amount;} save(); openIncidentModal(inc.id); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
+async function addIncidentProgress(){let inc=currentIncident(); if(!inc)return alert('先にインシデントを保存してください'); normalizeIncident(inc); let text=$('ipText').value.trim(); let status=$('ipStatus').value; let media=await readIncidentProgressMedia(); let amount=status==='done'?Number($('ipAmount').value||0):0; let entry={id:'p'+Date.now(),date:$('ipDate').value||new Date().toISOString().slice(0,10),person:$('ipPerson').value.trim(),status,text,amount,media}; inc.progress.push(entry); inc.status=entry.status||inc.status; if(entry.status==='done'){inc.completeDate=entry.date; inc.amount=amount;} save(); await saveIncidentToFirestore(inc.id); openIncidentModal(inc.id); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
 function toggleProgressAmount(){let el=$('ipAmount'); if(!el)return; let show=$('ipStatus')&&$('ipStatus').value==='done'; el.style.display=show?'':'none'; if(!show)el.value='';}
 function recalcIncidentFromProgress(inc){normalizeIncident(inc); let hist=inc.progress; let last=hist[hist.length-1]; if(last){inc.status=last.status||inc.status; let done=[...hist].reverse().find(p=>p.status==='done'); inc.completeDate=done?done.date:''; inc.amount=done?Number(done.amount||0):0;}else{inc.status=inc.status==='done'?'open':inc.status; inc.completeDate=''; inc.amount=0;}}
 function deleteIncidentProgress(index){let inc=currentIncident(); if(!inc)return; normalizeIncident(inc); let idx=Number(index); if(Number.isNaN(idx)||idx<0||idx>=inc.progress.length)return; inc.progress.splice(idx,1); recalcIncidentFromProgress(inc); save(); renderIncidentHistory(inc); renderIncidentMedia(inc); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
