@@ -265,10 +265,22 @@ async function saveIncident(){
   }
 
   save();
+  await saveIncidentToFirestore(editingIncidentId);
   openIncidentModal(editingIncidentId);
   renderIncidents();
   if(currentTab==='archive')renderArchive();
   renderDashboard();
+}
+async function saveIncidentToFirestore(id){
+  if(!window.firebaseDb || !window.firebaseDoc || !window.firebaseSetDoc)return;
+
+  const inc = db.incidents.find(x=>String(x.id)===String(id));
+  if(!inc)return;
+
+  await window.firebaseSetDoc(
+    window.firebaseDoc(window.firebaseDb, "incidents", String(inc.id)),
+    inc
+  );
 }
 function deleteIncident(){if(!editingIncidentId)return; if(!confirm('このインシデントを削除しますか？'))return; db.incidents=db.incidents.filter(x=>String(x.id)!==String(editingIncidentId)); save(); closeIncidentModal(); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
 function deleteIncidentMedia(idx){let inc=currentIncident(); if(!inc)return; normalizeIncident(inc); inc.media.splice(idx,1); save(); renderIncidentMedia(inc); renderIncidents();}
