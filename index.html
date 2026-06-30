@@ -146,26 +146,31 @@ let editingIncidentId=null;
 function formatYen(v){let n=Number(v||0); return n?('¥'+n.toLocaleString()):'-';}
 function fileToDataURL(file){return new Promise((resolve,reject)=>{let r=new FileReader(); r.onload=()=>resolve({id:'m'+Date.now()+Math.random().toString(36).slice(2),name:file.name,type:file.type,url:r.result}); r.onerror=reject; r.readAsDataURL(file);});}
 async function readMediaFiles(input){
+
   const files=[...(input?.files||[])];
   const media=[];
 
   for(const file of files){
-    const fileName=`incident/${Date.now()}_${Math.random().toString(36).slice(2)}_${file.name}`;
-    const storageRef=window.firebaseStorageRef(window.firebaseStorage,fileName);
 
-    await window.firebaseUploadBytes(storageRef,file);
-    const url=await window.firebaseGetDownloadURL(storageRef);
+    const fileRef = ref(
+      window.firebaseStorage,
+      `incident/${Date.now()}_${file.name}`
+    );
+
+    await uploadBytes(fileRef,file);
+
+    const url=await getDownloadURL(fileRef);
 
     media.push({
-      id:'m'+Date.now()+Math.random().toString(36).slice(2),
-      name:file.name,
-      type:file.type,
-      url:url
+      type:file.type.startsWith("video")?"video":"image",
+      url:url,
+      name:file.name
     });
+
   }
 
-  if(input)input.value='';
   return media;
+
 }
 async function readIncidentProgressMedia(){let media=[]; for(let id of ['ipMediaFiles','ipCameraPhoto','ipCameraVideo'])media.push(...await readMediaFiles($(id))); return media;}
 function mediaHTML(m,del){let isVideo=(m.type||'').startsWith('video/'); return `<div class="incidentMediaItem">${isVideo?`<video controls src="${m.url}"></video>`:`<img src="${m.url}" alt="${safeText(m.name||'添付')}">`}<div class="small">${safeText(m.name||'添付')}</div>${del?`<button class="danger" type="button" onclick="${del}">削除</button>`:''}</div>`;}
