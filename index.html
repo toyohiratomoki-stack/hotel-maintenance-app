@@ -329,7 +329,28 @@ async function loadIncidentsFromFirestore(){
 }
 function deleteIncident(){if(!editingIncidentId)return; if(!confirm('このインシデントを削除しますか？'))return; db.incidents=db.incidents.filter(x=>String(x.id)!==String(editingIncidentId)); save(); closeIncidentModal(); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
 function deleteIncidentMedia(idx){let inc=currentIncident(); if(!inc)return; normalizeIncident(inc); inc.media.splice(idx,1); save(); renderIncidentMedia(inc); renderIncidents();}
-async function addIncidentProgress(){let inc=currentIncident(); if(!inc)return alert('先にインシデントを保存してください'); normalizeIncident(inc); let text=$('ipText').value.trim(); let status=$('ipStatus').value; let media=await readIncidentProgressMedia(); let amount=status==='done'?Number($('ipAmount').value||0):0; let entry={id:'p'+Date.now(),date:$('ipDate').value||new Date().toISOString().slice(0,10),person:$('ipPerson').value.trim(),status,text,amount,media}; inc.progress.push(entry); inc.status=entry.status||inc.status; if(entry.status==='done'){inc.completeDate=entry.date; inc.amount=amount;} save(); await saveIncidentToFirestore(inc.id); openIncidentModal(inc.id); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
+async function addIncidentProgress(){
+  let inc=currentIncident();
+  if(!inc)return alert('先にインシデントを保存してください');
+  normalizeIncident(inc);
+  let text=$('ipText').value.trim();
+  let status=$('ipStatus').value;
+  let media=await readIncidentProgressMedia();
+  let amount=status==='done'?Number($('ipAmount').value||0):0;
+  let entry={id:'p'+Date.now(),date:$('ipDate').value||new Date().toISOString().slice(0,10),person:$('ipPerson').value.trim(),status,text,amount,media};
+  inc.progress.push(entry);
+  inc.status=entry.status||inc.status;
+  if(entry.status==='done'){
+    inc.completeDate=entry.date;
+    inc.amount=amount;
+  }
+  save();
+  await saveIncidentToFirestore(inc.id);
+  openIncidentModal(inc.id);
+  renderIncidents();
+  if(currentTab==='archive')renderArchive();
+  renderDashboard();
+}
 function toggleProgressAmount(){let el=$('ipAmount'); if(!el)return; let show=$('ipStatus')&&$('ipStatus').value==='done'; el.style.display=show?'':'none'; if(!show)el.value='';}
 function recalcIncidentFromProgress(inc){normalizeIncident(inc); let hist=inc.progress; let last=hist[hist.length-1]; if(last){inc.status=last.status||inc.status; let done=[...hist].reverse().find(p=>p.status==='done'); inc.completeDate=done?done.date:''; inc.amount=done?Number(done.amount||0):0;}else{inc.status=inc.status==='done'?'open':inc.status; inc.completeDate=''; inc.amount=0;}}
 function deleteIncidentProgress(index){let inc=currentIncident(); if(!inc)return; normalizeIncident(inc); let idx=Number(index); if(Number.isNaN(idx)||idx<0||idx>=inc.progress.length)return; inc.progress.splice(idx,1); recalcIncidentFromProgress(inc); save(); renderIncidentHistory(inc); renderIncidentMedia(inc); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
