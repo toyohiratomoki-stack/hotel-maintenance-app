@@ -74,7 +74,25 @@ function storeById(id){return db.stores.find(s=>s.id===id);}
 function visibleStores(){return currentUser.role==='admin'?db.stores:db.stores.filter(s=>currentUser.stores.includes(s.id));}
 function setTab(tab){currentTab=tab; render();}
 function allowedTabs(){let base=[['dashboard','⌂','ダッシュボード'],['incidents','⚒','インシデント'],['archive','□','アーカイブ'],['aircon','♨','エアコン洗浄']]; if(currentUser.role==='admin')base.push(['stores','▣','店舗管理'],['users','☷','ユーザー管理']); if(currentUser.role==='manager')base.push(['users','☷','ユーザー管理']); return base;}
-function login(){let id=$('loginId').value.trim(),pw=$('loginPw').value; let u=db.users.find(x=>x.login===id&&x.password===pw); if(!u){$('loginMsg').textContent='ログインIDまたはパスワードが違います';return} currentUser=u; currentStoreId=visibleStores()[0]?.id||null; $('loginView').classList.add('hidden'); $('appView').classList.remove('hidden'); render();}
+async function login(){
+  let id=$('loginId').value.trim(),pw=$('loginPw').value;
+  let u=db.users.find(x=>x.login===id&&x.password===pw);
+
+  if(!u){
+    $('loginMsg').textContent='ログインIDまたはパスワードが違います';
+    return;
+  }
+
+  currentUser=u;
+  currentStoreId=visibleStores()[0]?.id||null;
+
+  await loadIncidentsFromFirestore();
+
+  $('loginView').classList.add('hidden');
+  $('appView').classList.remove('hidden');
+
+  render();
+}
 function logout(){currentUser=null; localStorage.removeItem('lastUser'); $('appView').classList.add('hidden'); $('loginView').classList.remove('hidden');}
 function render(){if(!currentUser)return; let tabs=allowedTabs(); if(!tabs.some(t=>t[0]===currentTab)) currentTab=tabs[0][0]; $('nav').innerHTML=tabs.map(t=>`<button class="${currentTab===t[0]?'active':''}" onclick="setTab('${t[0]}')"><b>${t[1]}</b>${t[2]}</button>`).join(''); $('pageTitle').textContent=tabs.find(t=>t[0]===currentTab)?.[2]||''; let stores=visibleStores(); let hideStoreBar=currentTab==='stores'||currentTab==='users'; $('storeSelect').parentElement.classList.toggle('hidden',hideStoreBar); if(currentTab==='incidents'||currentTab==='archive'){if(!currentStoreId||(!stores.some(s=>s.id===currentStoreId)&&currentStoreId!=='all'))currentStoreId='all'; $('storeSelect').innerHTML='<option value="all">全店舗</option>'+stores.map(s=>`<option value="${s.id}">${s.name}</option>`).join(''); $('brand').textContent=currentStoreId==='all'?'全店舗':(storeById(currentStoreId)?.name||'HOTEL').slice(0,5);} else {if(!stores.some(s=>s.id===currentStoreId))currentStoreId=stores[0]?.id||null; $('storeSelect').innerHTML=stores.map(s=>`<option value="${s.id}">${s.name}</option>`).join(''); $('brand').textContent=(storeById(currentStoreId)?.name||'HOTEL').slice(0,5);} $('storeSelect').value=currentStoreId||''; ['dashboard','incidents','archive','aircon','stores','users','reports'].forEach(v=>$(v+'View')?.classList.add('hidden')); $(currentTab+'View')?.classList.remove('hidden'); updateIncidentTabs(); renderRoomsData(); renderActions(); if(currentTab==='aircon')renderAircon(); if(currentTab==='dashboard')renderDashboard(); if(currentTab==='stores')renderStores(); if(currentTab==='users')renderUsers(); if(currentTab==='reports')renderReports(); if(currentTab==='incidents')renderIncidents(); if(currentTab==='archive')renderArchive();}
 function renderActions(){let html=''; if(currentTab==='aircon')html='<button class="iconbtn" type="button" onclick="printAirconPdf()">PDF印刷</button>'; if(currentTab==='incidents')html='<button class="iconbtn" type="button" onclick="printIncidentListPdf()">PDF印刷</button>'; if(currentTab==='archive')html='<button class="iconbtn" type="button" onclick="printArchivePdf()">PDF印刷</button>'; $('pageActions').innerHTML=html;}
@@ -300,6 +318,8 @@ async function loadIncidentsFromFirestore(){
   renderDashboard();
   renderIncidents();
   if(currentTab==="archive")renderArchive();
+
+}
 function deleteIncident(){if(!editingIncidentId)return; if(!confirm('このインシデントを削除しますか？'))return; db.incidents=db.incidents.filter(x=>String(x.id)!==String(editingIncidentId)); save(); closeIncidentModal(); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
 function deleteIncidentMedia(idx){let inc=currentIncident(); if(!inc)return; normalizeIncident(inc); inc.media.splice(idx,1); save(); renderIncidentMedia(inc); renderIncidents();}
 async function addIncidentProgress(){let inc=currentIncident(); if(!inc)return alert('先にインシデントを保存してください'); normalizeIncident(inc); let text=$('ipText').value.trim(); let status=$('ipStatus').value; let media=await readIncidentProgressMedia(); let amount=status==='done'?Number($('ipAmount').value||0):0; let entry={id:'p'+Date.now(),date:$('ipDate').value||new Date().toISOString().slice(0,10),person:$('ipPerson').value.trim(),status,text,amount,media}; inc.progress.push(entry); inc.status=entry.status||inc.status; if(entry.status==='done'){inc.completeDate=entry.date; inc.amount=amount;} save(); openIncidentModal(inc.id); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
