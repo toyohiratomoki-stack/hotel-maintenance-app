@@ -52,8 +52,72 @@ let db=JSON.parse(localStorage.getItem(LS)||'null')||INITIAL;
 let currentUser=null,currentStoreId=null,currentTab='aircon',editingStoreId=null,editingUserId=null,currentIncidentStatuses=new Set(['progress','open']);
 const $=id=>document.getElementById(id);
 function save(){localStorage.setItem(LS,JSON.stringify(db));}
+function cloneDbForSync(){
+  return JSON.parse(JSON.stringify({
+    stores: db.stores || [],
+    users: db.users || [],
+    incidents: db.incidents || []
+  }));
+}
+function applySyncedDb(data){
+  if(!data)return;
+  db.stores = Array.isArray(data.stores) ? data.stores : (db.stores || []);
+  db.users = Array.isArray(data.users) ? data.users : (db.users || []);
+  db.incidents = Array.isArray(data.incidents) ? data.incidents : (db.incidents || []);
+  save();
+  if(currentUser){
+    const login = currentUser.login || localStorage.getItem('currentUserLogin');
+    const refreshed = db.users.find(u=>u.login===login || u.id===currentUser.id);
+    if(refreshed)currentUser = refreshed;
+    const stores = visibleStores();
+    if(currentStoreId!=='all' && !stores.some(s=>s.id===currentStoreId)){
+      currentStoreId = stores[0]?.id || null;
+    }
+    render();
+  }
+}
+async function saveAppStateToFirestore(showAlert=false){
+  if(!window.firebaseDb || !window.firebaseDoc || !window.firebaseSetDoc)return;
+  try{
+    await window.firebaseSetDoc(
+      window.firebaseDoc(window.firebaseDb, 'appState', 'main'),
+      Object.assign(cloneDbForSync(), { updatedAt: new Date().toISOString() })
+    );
+  }catch(e){
+    console.error('Firestore appState save error', e);
+    if(showAlert)alert('共有保存に失敗しました。Firebaseのルールを確認してください。');
+  }
+}
+async function loadAppStateFromFirestore(){
+  if(!window.firebaseDb || !window.firebaseCollection || !window.firebaseGetDocs)return false;
+  try{
+    const snap = await window.firebaseGetDocs(window.firebaseCollection(window.firebaseDb, 'appState'));
+    let remote = null;
+    snap.forEach(d=>{ if(d.id==='main')remote = d.data(); });
+    if(remote){
+      applySyncedDb(remote);
+      return true;
+    }
+    await saveAppStateToFirestore(false);
+    return false;
+  }catch(e){
+    console.warn('Firestore appState load error', e);
+    return false;
+  }
+}
+function startAppStateRealtime(){
+  if(window.appStateUnsubscribe)window.appStateUnsubscribe();
+  if(!window.firebaseDb || !window.firebaseDoc || !window.firebaseOnSnapshot)return;
+  window.appStateUnsubscribe = window.firebaseOnSnapshot(
+    window.firebaseDoc(window.firebaseDb, 'appState', 'main'),
+    snap=>{
+      if(snap.exists())applySyncedDb(snap.data());
+    },
+    e=>console.warn('Firestore appState realtime error', e)
+  );
+}
 async function saveToFirebase(){
-  // 後でここにFirebase保存処理を書きます
+  await saveAppStateToFirestore(true);
 }
 function today(){return new Date('2026-06-29T00:00:00');}
 function parseDate(s){if(!s)return null; const d=new Date(s+'T00:00:00'); return isNaN(d)?null:d;}
@@ -75,6 +139,7 @@ function visibleStores(){return currentUser.role==='admin'?db.stores:db.stores.f
 function setTab(tab){currentTab=tab; render();}
 function allowedTabs(){let base=[['dashboard','⌂','ダッシュボード'],['incidents','⚒','インシデント'],['archive','□','アーカイブ'],['aircon','♨','エアコン洗浄']]; if(currentUser.role==='admin')base.push(['stores','▣','店舗管理'],['users','☷','ユーザー管理']); if(currentUser.role==='manager')base.push(['users','☷','ユーザー管理']); return base;}
 async function login(){
+  await loadAppStateFromFirestore();
   let id=$('loginId').value.trim(),pw=$('loginPw').value;
   let u=db.users.find(x=>x.login===id&&x.password===pw);
 
@@ -106,7 +171,24 @@ function renderActions(){let html=''; if(currentTab==='aircon')html='<button cla
 function renderRoomsData(){let s=storeById(currentStoreId); $('roomsData').innerHTML=(s?.rooms||[]).filter(r=>isValidRoomNumber(r.room)).map(r=>`<option value="${r.room}"></option>`).join('');}
 function roomFloor(room){let m=String(room||'').match(/^(\d+)/); if(!m)return 'その他'; let n=m[1]; return n.length>=3 ? String(parseInt(n.slice(0,-2),10))+'階' : 'その他';}
 function renderAircon(){let s=storeById(currentStoreId); if(!s){$('airconCards').innerHTML='<p>店舗がありません</p>';return} let q=$('airconSearch').value.trim().toLowerCase(); let f=$('airconFilter').value; let rooms=s.rooms.filter(r=>isValidRoomNumber(r.room)).filter(r=>{let st=statusFor(r.latestDate); let text=[r.room,r.latestDate,r.manufacturer,r.worker,r.memo,st.text].join(' ').toLowerCase(); return (!q||text.includes(q))&&(f==='all'||st.key===f);}).sort((a,b)=>String(a.room).localeCompare(String(b.room),'ja',{numeric:true})); let groups={}; rooms.forEach(r=>{let fl=roomFloor(r.room); (groups[fl]||(groups[fl]=[])).push(r);}); let floors=Object.keys(groups).sort((a,b)=>parseInt(a)||999 - (parseInt(b)||999)); $('airconCards').innerHTML=floors.map(fl=>`<section class="floorBlock"><div class="floorTitle">${fl}</div><div class="floorGrid">${groups[fl].map(r=>{let st=statusFor(r.latestDate);return `<div class="airconCard" onclick="openAirconRoom('${r.room.replace(/'/g,"\'")}')"><h3>${r.room}</h3><p>最新：<span class="${st.cls}">${r.latestDate||'未登録'}</span></p><p>状態：<span class="${st.cls}">${st.text}</span></p><p class="small">経過：${st.days}　作業者：${r.worker||'-'}</p><p class="small">メーカー：${r.manufacturer||'-'}</p>${r.memo?`<p class="small">${r.memo}</p>`:''}</div>`}).join('')}</div></section>`).join('')||'<p class="small">表示する部屋がありません。</p>';}
-function addAircon(){let s=storeById(currentStoreId); if(!s)return; let room=$('acRoom').value.trim(); if(!room)return alert('部屋番号を入力してください'); let r=s.rooms.find(x=>x.room===room); if(!r){r={room,latestDate:'',manufacturer:'',worker:'',memo:'',history:[]};s.rooms.push(r)} let rec={date:$('acDate').value||new Date().toISOString().slice(0,10),manufacturer:$('acMaker').value.trim(),worker:$('acWorker').value.trim(),memo:$('acMemo').value.trim()}; r.history.push(rec); r.latestDate=rec.date; r.manufacturer=rec.manufacturer; r.worker=rec.worker; r.memo=rec.memo; save(); ['acRoom','acMaker','acDate','acWorker','acMemo'].forEach(id=>$(id).value=''); renderAircon();}
+async function addAircon(){
+  let s=storeById(currentStoreId);
+  if(!s)return;
+  let room=$('acRoom').value.trim();
+  if(!room)return alert('部屋番号を入力してください');
+  let r=s.rooms.find(x=>x.room===room);
+  if(!r){r={room,latestDate:'',manufacturer:'',worker:'',memo:'',history:[]};s.rooms.push(r)}
+  let rec={date:$('acDate').value||new Date().toISOString().slice(0,10),manufacturer:$('acMaker').value.trim(),worker:$('acWorker').value.trim(),memo:$('acMemo').value.trim()};
+  r.history.push(rec);
+  r.latestDate=rec.date;
+  r.manufacturer=rec.manufacturer;
+  r.worker=rec.worker;
+  r.memo=rec.memo;
+  save();
+  await saveAppStateToFirestore(true);
+  ['acRoom','acMaker','acDate','acWorker','acMemo'].forEach(id=>$(id).value='');
+  renderAircon();
+}
 function openAirconRoom(room){let s=storeById(currentStoreId); let r=s.rooms.find(x=>x.room===room); let st=statusFor(r.latestDate); $('airconModalTitle').textContent=`${room}号室 エアコン洗浄`; let hist=[...(r.history||[])].sort((a,b)=>(b.date||'').localeCompare(a.date||'')); $('airconModalBody').innerHTML=`<div class="panel"><p>最新洗浄日：<span class="${st.cls}">${r.latestDate||'未登録'}</span></p><p>状態：<span class="${st.cls}">${st.text}</span></p><p>メーカー：${r.manufacturer||'-'}</p><p>作業者：${r.worker||'-'}</p><p>メモ：${r.memo||'-'}</p></div><h2>洗浄履歴</h2><div class="history">${hist.map((h,i)=>`<div class="historyItem"><b>${h.date||'-'}</b><br>メーカー：${h.manufacturer||'-'}　作業者：${h.worker||'-'}<br>メモ：${h.memo||'-'} <button class="danger" style="float:right" onclick="deleteAirconHistory('${room.replace(/'/g,"\'")}',${i})">削除</button></div>`).join('')||'<p class="small">履歴なし</p>'}</div>`; $('airconModal').classList.add('show');}
 function closeAirconModal(){$('airconModal').classList.remove('show');}
 function deleteAirconHistory(room,idx){let s=storeById(currentStoreId),r=s.rooms.find(x=>x.room===room); let hist=[...(r.history||[])].sort((a,b)=>(b.date||'').localeCompare(a.date||'')); let target=hist[idx]; r.history=r.history.filter(h=>h!==target); let latest=[...(r.history||[])].sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0]; r.latestDate=latest?.date||''; r.manufacturer=latest?.manufacturer||''; r.worker=latest?.worker||''; r.memo=latest?.memo||''; save(); openAirconRoom(room); renderAircon();}
@@ -161,12 +243,65 @@ function openStoreModal(id){editingStoreId=id||null; let s=id?storeById(id):{nam
 function closeStoreModal(){$('storeModal').classList.remove('show');}
 function buildRoomFields(vals){$('roomFields').innerHTML=vals.map((v,i)=>`<input class="roomInput" value="${v}" placeholder="部屋${i+1}">`).join(''); checkRooms();}
 function checkRooms(){let vals=[...document.querySelectorAll('.roomInput')].map(i=>i.value.trim()); let empty=vals.some(v=>!v), dup=vals.filter((v,i)=>v&&vals.indexOf(v)!==i); $('roomCheck').textContent=empty?'空欄があります':dup.length?'重複：'+[...new Set(dup)].join(', '):''; return !empty&&!dup.length;}
-function saveStore(){if(!checkRooms())return alert('部屋番号の空欄または重複を修正してください'); let name=$('editStoreName').value.trim(), code=$('editStoreCode').value.trim(); if(!name||!code)return alert('店舗コードとホテル名を入力してください'); let s=editingStoreId?storeById(editingStoreId):null; if(!s){s={id:'h'+Date.now(),code:'',name:'',address:'',phone:'',manager:'',memo:'',rooms:[]}; db.stores.push(s); if(currentUser.role==='admin'&&!currentUser.stores.includes(s.id))currentUser.stores.push(s.id); editingStoreId=s.id;} s.name=name; s.code=code; s.address=$('editStoreAddress').value.trim(); s.phone=$('editStorePhone').value.trim(); let old=Object.fromEntries((s.rooms||[]).map(r=>[r.room,r])); s.rooms=[...document.querySelectorAll('.roomInput')].map(i=>i.value.trim()).filter(Boolean).sort((a,b)=>String(a).localeCompare(String(b),'ja',{numeric:true})).map(room=>old[room]||{room,latestDate:'',manufacturer:'',worker:'',memo:'',history:[]}); db.stores.sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''),'ja',{numeric:true})); save(); closeStoreModal(); render();}
-function deleteStore(){if(!editingStoreId)return; if(!confirm('この店舗を削除しますか？'))return; db.stores=db.stores.filter(s=>s.id!==editingStoreId); db.users.forEach(u=>u.stores=(u.stores||[]).filter(id=>id!==editingStoreId)); db.incidents=(db.incidents||[]).filter(i=>i.storeId!==editingStoreId); currentStoreId=visibleStores()[0]?.id||null; save(); closeStoreModal(); render();}
+async function saveStore(){
+  if(!checkRooms())return alert('部屋番号の空欄または重複を修正してください');
+  let name=$('editStoreName').value.trim(), code=$('editStoreCode').value.trim();
+  if(!name||!code)return alert('店舗コードとホテル名を入力してください');
+  let s=editingStoreId?storeById(editingStoreId):null;
+  if(!s){
+    s={id:'h'+Date.now(),code:'',name:'',address:'',phone:'',manager:'',memo:'',rooms:[]};
+    db.stores.push(s);
+    if(currentUser.role==='admin'&&!currentUser.stores.includes(s.id))currentUser.stores.push(s.id);
+    editingStoreId=s.id;
+  }
+  s.name=name;
+  s.code=code;
+  s.address=$('editStoreAddress').value.trim();
+  s.phone=$('editStorePhone').value.trim();
+  let old=Object.fromEntries((s.rooms||[]).map(r=>[r.room,r]));
+  s.rooms=[...document.querySelectorAll('.roomInput')].map(i=>i.value.trim()).filter(Boolean).sort((a,b)=>String(a).localeCompare(String(b),'ja',{numeric:true})).map(room=>old[room]||{room,latestDate:'',manufacturer:'',worker:'',memo:'',history:[]});
+  db.stores.sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''),'ja',{numeric:true}));
+  save();
+  await saveAppStateToFirestore(true);
+  closeStoreModal();
+  render();
+}
+async function deleteStore(){
+  if(!editingStoreId)return;
+  if(!confirm('この店舗を削除しますか？'))return;
+  db.stores=db.stores.filter(s=>s.id!==editingStoreId);
+  db.users.forEach(u=>u.stores=(u.stores||[]).filter(id=>id!==editingStoreId));
+  db.incidents=(db.incidents||[]).filter(i=>i.storeId!==editingStoreId);
+  currentStoreId=visibleStores()[0]?.id||null;
+  save();
+  await saveAppStateToFirestore(true);
+  closeStoreModal();
+  render();
+}
 function renderUsers(){let canAdd=currentUser.role==='admin'||currentUser.role==='manager'; $('userAddBtn').classList.toggle('hidden',!canAdd); let list=db.users.filter(u=>currentUser.role==='admin'||(currentUser.role==='manager'&&u.role==='staff'&&u.stores.some(id=>currentUser.stores.includes(id)))); $('usersTable').innerHTML='<tr><th>名前</th><th>ログインID</th><th>権限</th><th></th></tr>'+list.map(u=>`<tr><td>${u.name}</td><td>${u.login}</td><td>${roleName(u.role)}</td><td><button class="iconbtn" onclick="openUserModal('${u.id}')">編集</button></td></tr>`).join('');}
 function openUserModal(id){editingUserId=id||null; let u=id?db.users.find(x=>x.id===id):{login:'',password:'',name:'',role:'staff',stores:[currentStoreId]}; $('uLogin').value=u.login; $('uPassword').value=u.password; $('uName').value=u.name; let roles=currentUser.role==='admin'?[['admin','管理者'],['manager','店舗管理者'],['staff','スタッフ']]:[['staff','スタッフ']]; $('uRole').innerHTML=roles.map(r=>`<option value="${r[0]}">${r[1]}</option>`).join(''); $('uRole').value=u.role==='admin'&&currentUser.role!=='admin'?'staff':u.role; let stores=currentUser.role==='admin'?db.stores:visibleStores(); $('uStores').innerHTML=stores.map(s=>`<label><input type="checkbox" value="${s.id}" ${u.stores.includes(s.id)?'checked':''}> ${s.name}</label>`).join(''); $('userModal').classList.add('show');}
 function closeUserModal(){$('userModal').classList.remove('show');}
-function saveUser(){let stores=[...$('uStores').querySelectorAll('input:checked')].map(i=>i.value); if(!stores.length)return alert('担当店舗を選択してください'); let role=$('uRole').value; if(currentUser.role==='manager')role='staff'; if(editingUserId){let u=db.users.find(x=>x.id===editingUserId); Object.assign(u,{login:$('uLogin').value.trim(),password:$('uPassword').value,name:$('uName').value.trim(),role,stores})} else {db.users.push({id:'u'+Date.now(),login:$('uLogin').value.trim(),password:$('uPassword').value,name:$('uName').value.trim(),role,stores})} save(); closeUserModal(); renderUsers();}
+async function saveUser(){
+  let stores=[...$('uStores').querySelectorAll('input:checked')].map(i=>i.value);
+  if(!stores.length)return alert('担当店舗を選択してください');
+  let login=$('uLogin').value.trim();
+  let password=$('uPassword').value;
+  let name=$('uName').value.trim();
+  if(!login||!password||!name)return alert('ログインID・パスワード・名前を入力してください');
+  let role=$('uRole').value;
+  if(currentUser.role==='manager')role='staff';
+  if(editingUserId){
+    let u=db.users.find(x=>x.id===editingUserId);
+    if(u)Object.assign(u,{login,password,name,role,stores});
+  }else{
+    if(db.users.some(u=>u.login===login))return alert('同じログインIDのユーザーがいます');
+    db.users.push({id:'u'+Date.now(),login,password,name,role,stores});
+  }
+  save();
+  await saveAppStateToFirestore(true);
+  closeUserModal();
+  renderUsers();
+}
 let editingIncidentId=null;
 function formatYen(v){let n=Number(v||0); return n?('¥'+n.toLocaleString()):'-';}
 function fileToDataURL(file){return new Promise((resolve,reject)=>{let r=new FileReader(); r.onload=()=>resolve({id:'m'+Date.now()+Math.random().toString(36).slice(2),name:file.name,type:file.type,url:r.result}); r.onerror=reject; r.readAsDataURL(file);});}
@@ -293,70 +428,46 @@ async function saveIncident(){
 }
 async function saveIncidentToFirestore(id){
   if(!window.firebaseDb || !window.firebaseDoc || !window.firebaseSetDoc)return;
-
   const inc = db.incidents.find(x=>String(x.id)===String(id));
   if(!inc)return;
-
   try{
     await window.firebaseSetDoc(
-      window.firebaseDoc(window.firebaseDb, "incidents", String(inc.id)),
+      window.firebaseDoc(window.firebaseDb, 'incidents', String(inc.id)),
       inc
     );
+    await saveAppStateToFirestore(false);
   }catch(e){
     console.error('Firestore save error', e);
     alert('インシデントはこの端末には保存されましたが、共有保存に失敗しました。Firebaseのルールを確認してください。');
   }
 }
 async function loadIncidentsFromFirestore(){
-  if(!window.firebaseDb || !window.firebaseCollection || !window.firebaseGetDocs)return;
-
-  try{
-    const snap = await window.firebaseGetDocs(
-      window.firebaseCollection(window.firebaseDb,"incidents")
-    );
-
-    const firebaseIncidents=[];
-    snap.forEach(docSnap=>{
-      const inc=docSnap.data();
-      if(inc && inc.id)firebaseIncidents.push(inc);
-    });
-
-    if(firebaseIncidents.length){
-      db.incidents=firebaseIncidents;
-      save();
-    }
-  }catch(e){
-    console.warn('Firestore load error', e);
-  }
+  await loadAppStateFromFirestore();
 }
 function startIncidentRealtime(){
-
-  if(window.incidentUnsubscribe){
-  window.incidentUnsubscribe();
+  startAppStateRealtime();
 }
-  if(!window.firebaseOnSnapshot) return;
-
-  window.incidentUnsubscribe = window.firebaseOnSnapshot(
-    window.firebaseCollection(window.firebaseDb,"incidents"),
-    (snapshot)=>{
-
-      db.incidents=[];
-
-      snapshot.forEach(doc=>{
-        db.incidents.push(doc.data());
-      });
-
-      save();
-      renderDashboard();
-      renderIncidents();
-      if(currentTab==="archive") renderArchive();
-
-    }
-  );
-
+async function deleteIncident(){
+  if(!editingIncidentId)return;
+  if(!confirm('このインシデントを削除しますか？'))return;
+  db.incidents=db.incidents.filter(x=>String(x.id)!==String(editingIncidentId));
+  save();
+  await saveAppStateToFirestore(true);
+  closeIncidentModal();
+  renderIncidents();
+  if(currentTab==='archive')renderArchive();
+  renderDashboard();
 }
-function deleteIncident(){if(!editingIncidentId)return; if(!confirm('このインシデントを削除しますか？'))return; db.incidents=db.incidents.filter(x=>String(x.id)!==String(editingIncidentId)); save(); closeIncidentModal(); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
-function deleteIncidentMedia(idx){let inc=currentIncident(); if(!inc)return; normalizeIncident(inc); inc.media.splice(idx,1); save(); renderIncidentMedia(inc); renderIncidents();}
+async function deleteIncidentMedia(idx){
+  let inc=currentIncident();
+  if(!inc)return;
+  normalizeIncident(inc);
+  inc.media.splice(idx,1);
+  save();
+  await saveIncidentToFirestore(inc.id);
+  renderIncidentMedia(inc);
+  renderIncidents();
+}
 async function addIncidentProgress(){
   let inc=currentIncident();
   if(!inc)return alert('先にインシデントを保存してください');
@@ -381,8 +492,38 @@ async function addIncidentProgress(){
 }
 function toggleProgressAmount(){let el=$('ipAmount'); if(!el)return; let show=$('ipStatus')&&$('ipStatus').value==='done'; el.style.display=show?'':'none'; if(!show)el.value='';}
 function recalcIncidentFromProgress(inc){normalizeIncident(inc); let hist=inc.progress; let last=hist[hist.length-1]; if(last){inc.status=last.status||inc.status; let done=[...hist].reverse().find(p=>p.status==='done'); inc.completeDate=done?done.date:''; inc.amount=done?Number(done.amount||0):0;}else{inc.status=inc.status==='done'?'open':inc.status; inc.completeDate=''; inc.amount=0;}}
-function deleteIncidentProgress(index){let inc=currentIncident(); if(!inc)return; normalizeIncident(inc); let idx=Number(index); if(Number.isNaN(idx)||idx<0||idx>=inc.progress.length)return; inc.progress.splice(idx,1); recalcIncidentFromProgress(inc); save(); renderIncidentHistory(inc); renderIncidentMedia(inc); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
-function deleteIncidentProgressById(id){let inc=currentIncident(); if(!inc)return; normalizeIncident(inc); let before=inc.progress.length; inc.progress=inc.progress.filter(h=>String(h.id)!==String(id)); if(inc.progress.length===before)return; recalcIncidentFromProgress(inc); save(); renderIncidentHistory(inc); renderIncidentMedia(inc); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
+async function deleteIncidentProgress(index){
+  let inc=currentIncident();
+  if(!inc)return;
+  normalizeIncident(inc);
+  let idx=Number(index);
+  if(Number.isNaN(idx)||idx<0||idx>=inc.progress.length)return;
+  inc.progress.splice(idx,1);
+  recalcIncidentFromProgress(inc);
+  save();
+  await saveIncidentToFirestore(inc.id);
+  renderIncidentHistory(inc);
+  renderIncidentMedia(inc);
+  renderIncidents();
+  if(currentTab==='archive')renderArchive();
+  renderDashboard();
+}
+async function deleteIncidentProgressById(id){
+  let inc=currentIncident();
+  if(!inc)return;
+  normalizeIncident(inc);
+  let before=inc.progress.length;
+  inc.progress=inc.progress.filter(h=>String(h.id)!==String(id));
+  if(inc.progress.length===before)return;
+  recalcIncidentFromProgress(inc);
+  save();
+  await saveIncidentToFirestore(inc.id);
+  renderIncidentHistory(inc);
+  renderIncidentMedia(inc);
+  renderIncidents();
+  if(currentTab==='archive')renderArchive();
+  renderDashboard();
+}
 
 function shortDate(d){if(!d)return '未洗浄'; let p=String(d).split('-'); return p.length===3 ? `${p[0].slice(2)}/${Number(p[1])}/${Number(p[2])}` : safeText(d);}
 function airconPrintStatus(r){let k=statusFor(r.latestDate).key; return k==='ok'?'○':k==='warn'?'△':'×';}
@@ -404,6 +545,7 @@ window.addEventListener("load", async ()=>{
   const login = localStorage.getItem("currentUserLogin");
   if(!login) return;
 
+  await loadAppStateFromFirestore();
   const u = db.users.find(x=>x.login===login);
   if(!u) return;
 
