@@ -282,6 +282,24 @@ async function saveIncidentToFirestore(id){
     inc
   );
 }
+async function loadIncidentsFromFirestore(){
+
+  if(!window.firebaseDb || !window.firebaseCollection || !window.firebaseGetDocs)return;
+
+  const snap = await window.firebaseGetDocs(
+    window.firebaseCollection(window.firebaseDb,"incidents")
+  );
+
+  db.incidents = [];
+
+  snap.forEach(doc=>{
+    db.incidents.push(doc.data());
+  });
+
+  save();
+  renderDashboard();
+  renderIncidents();
+  if(currentTab==="archive")renderArchive();
 function deleteIncident(){if(!editingIncidentId)return; if(!confirm('このインシデントを削除しますか？'))return; db.incidents=db.incidents.filter(x=>String(x.id)!==String(editingIncidentId)); save(); closeIncidentModal(); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
 function deleteIncidentMedia(idx){let inc=currentIncident(); if(!inc)return; normalizeIncident(inc); inc.media.splice(idx,1); save(); renderIncidentMedia(inc); renderIncidents();}
 async function addIncidentProgress(){let inc=currentIncident(); if(!inc)return alert('先にインシデントを保存してください'); normalizeIncident(inc); let text=$('ipText').value.trim(); let status=$('ipStatus').value; let media=await readIncidentProgressMedia(); let amount=status==='done'?Number($('ipAmount').value||0):0; let entry={id:'p'+Date.now(),date:$('ipDate').value||new Date().toISOString().slice(0,10),person:$('ipPerson').value.trim(),status,text,amount,media}; inc.progress.push(entry); inc.status=entry.status||inc.status; if(entry.status==='done'){inc.completeDate=entry.date; inc.amount=amount;} save(); openIncidentModal(inc.id); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
@@ -443,7 +461,7 @@ function escPdfAttr(v){
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
-import { getFirestore } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+import { getFirestore, doc, setDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-storage.js";
 
 const firebaseConfig = {
@@ -459,6 +477,12 @@ const firebaseConfig = {
 window.firebaseApp = initializeApp(firebaseConfig);
 window.firebaseDb = getFirestore(window.firebaseApp);
 window.firebaseStorage = getStorage(window.firebaseApp);
+
+window.firebaseDoc = doc;
+window.firebaseSetDoc = setDoc;
+window.firebaseCollection = collection;
+window.firebaseGetDocs = getDocs;
+
 window.firebaseStorageRef = ref;
 window.firebaseUploadBytes = uploadBytes;
 window.firebaseGetDownloadURL = getDownloadURL;
