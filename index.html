@@ -84,6 +84,7 @@ async function login(){
   }
 
   currentUser=u;
+  localStorage.setItem("currentUserLogin", u.login);
   currentStoreId=visibleStores()[0]?.id||null;
 
   $('loginView').classList.add('hidden');
@@ -99,7 +100,7 @@ async function login(){
     console.warn('Firestore load skipped', e);
   }
 }
-function logout(){currentUser=null; localStorage.removeItem('lastUser'); $('appView').classList.add('hidden'); $('loginView').classList.remove('hidden');}
+function logout(){localStorage.removeItem("currentUserLogin");currentUser=null; localStorage.removeItem('lastUser'); $('appView').classList.add('hidden'); $('loginView').classList.remove('hidden');}
 function render(){if(!currentUser)return; let tabs=allowedTabs(); if(!tabs.some(t=>t[0]===currentTab)) currentTab=tabs[0][0]; $('nav').innerHTML=tabs.map(t=>`<button class="${currentTab===t[0]?'active':''}" onclick="setTab('${t[0]}')"><b>${t[1]}</b>${t[2]}</button>`).join(''); $('pageTitle').textContent=tabs.find(t=>t[0]===currentTab)?.[2]||''; let stores=visibleStores(); let hideStoreBar=currentTab==='stores'||currentTab==='users'; $('storeSelect').parentElement.classList.toggle('hidden',hideStoreBar); if(currentTab==='incidents'||currentTab==='archive'){if(!currentStoreId||(!stores.some(s=>s.id===currentStoreId)&&currentStoreId!=='all'))currentStoreId='all'; $('storeSelect').innerHTML='<option value="all">全店舗</option>'+stores.map(s=>`<option value="${s.id}">${s.name}</option>`).join(''); $('brand').textContent=currentStoreId==='all'?'全店舗':(storeById(currentStoreId)?.name||'HOTEL').slice(0,5);} else {if(!stores.some(s=>s.id===currentStoreId))currentStoreId=stores[0]?.id||null; $('storeSelect').innerHTML=stores.map(s=>`<option value="${s.id}">${s.name}</option>`).join(''); $('brand').textContent=(storeById(currentStoreId)?.name||'HOTEL').slice(0,5);} $('storeSelect').value=currentStoreId||''; ['dashboard','incidents','archive','aircon','stores','users','reports'].forEach(v=>$(v+'View')?.classList.add('hidden')); $(currentTab+'View')?.classList.remove('hidden'); updateIncidentTabs(); renderRoomsData(); renderActions(); if(currentTab==='aircon')renderAircon(); if(currentTab==='dashboard')renderDashboard(); if(currentTab==='stores')renderStores(); if(currentTab==='users')renderUsers(); if(currentTab==='reports')renderReports(); if(currentTab==='incidents')renderIncidents(); if(currentTab==='archive')renderArchive();}
 function renderActions(){let html=''; if(currentTab==='aircon')html='<button class="iconbtn" type="button" onclick="printAirconPdf()">PDF印刷</button>'; if(currentTab==='incidents')html='<button class="iconbtn" type="button" onclick="printIncidentListPdf()">PDF印刷</button>'; if(currentTab==='archive')html='<button class="iconbtn" type="button" onclick="printArchivePdf()">PDF印刷</button>'; $('pageActions').innerHTML=html;}
 function renderRoomsData(){let s=storeById(currentStoreId); $('roomsData').innerHTML=(s?.rooms||[]).filter(r=>isValidRoomNumber(r.room)).map(r=>`<option value="${r.room}"></option>`).join('');}
@@ -396,7 +397,36 @@ function currentIncidentListForPrint(includeDone=false){let allowedIds=visibleSt
 function printIncidentListPdf(){let list=currentIncidentListForPrint(false); let rows=list.map(i=>`<tr><td>${safeText(storeById(i.storeId)?.name||'-')}</td><td>${safeText(i.room||'-')}</td><td>${safeText(i.title||'-')}</td><td>${safeText(incidentStatusLabel(i.status))}</td><td>${safeText(i.person||'-')}</td><td>${safeText(i.date||'-')}</td></tr>`).join(''); openPrintWindow('インシデント一覧',`<div class="header"><h1>インシデント一覧</h1><div class="meta">印刷日：${new Date().toLocaleDateString('ja-JP')}</div></div><table class="printTable"><tr><th>店舗</th><th>部屋</th><th>内容</th><th>状況</th><th>担当</th><th>発生日</th></tr>${rows}</table>`);}
 function printArchivePdf(){let list=currentIncidentListForPrint(true); let rows=list.map(i=>`<tr><td>${safeText(storeById(i.storeId)?.name||'-')}</td><td>${safeText(i.room||'-')}</td><td>${safeText(i.title||'-')}</td><td>${safeText(incidentStatusLabel(i.status))}</td><td>${safeText(i.person||'-')}</td><td>${formatYen(i.amount)}</td><td>${safeText(i.date||'-')}</td><td>${safeText(i.completeDate||'-')}</td></tr>`).join(''); openPrintWindow('アーカイブ一覧',`<div class="header"><h1>アーカイブ一覧</h1><div class="meta">印刷日：${new Date().toLocaleDateString('ja-JP')}</div></div><table class="printTable"><tr><th>店舗</th><th>部屋</th><th>内容</th><th>状況</th><th>担当</th><th>金額</th><th>発生日</th><th>完了日</th></tr>${rows}</table>`);}
 
-$('loginBtn').onclick=login; $('logoutBtn').onclick=logout; $('storeSelect').onchange=e=>{currentStoreId=e.target.value; render();}; $('addAirconBtn').onclick=addAircon; $('airconSearch').oninput=renderAircon; $('airconFilter').onchange=renderAircon; if($('incidentStatusTabs'))$('incidentStatusTabs').onclick=e=>{let b=e.target.closest('button[data-status]'); if(b)setIncidentStatus(b.dataset.status);}; ['incidentRoomSearch','incidentContentSearch','incidentPersonSearch','incidentDateFrom','incidentDateTo'].forEach(id=>{if($(id))$(id).onkeydown=e=>{if(e.key==='Enter')renderIncidents();};}); if($('incidentSearchBtn'))$('incidentSearchBtn').onclick=renderIncidents; if($('incidentClearBtn'))$('incidentClearBtn').onclick=()=>{['incidentRoomSearch','incidentContentSearch','incidentPersonSearch','incidentDateFrom','incidentDateTo'].forEach(id=>{if($(id))$(id).value='';}); renderIncidents();}; ['archiveRoomSearch','archiveContentSearch','archivePersonSearch','archiveDateFrom','archiveDateTo','archiveStatusSearch'].forEach(id=>{if($(id))$(id).onkeydown=e=>{if(e.key==='Enter')renderArchive();};}); if($('archiveSearchBtn'))$('archiveSearchBtn').onclick=renderArchive; if($('archiveClearBtn'))$('archiveClearBtn').onclick=()=>{['archiveRoomSearch','archiveContentSearch','archivePersonSearch','archiveDateFrom','archiveDateTo'].forEach(id=>{if($(id))$(id).value='';}); if($('archiveStatusSearch'))$('archiveStatusSearch').value='all'; renderArchive();}; $('applyRoomsBtn').onclick=()=>{let pasted=$('bulkRooms').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean); let n=parseInt($('editRoomCount').value||pasted.length||0); let vals=pasted.slice(0,n); while(vals.length<n)vals.push(''); buildRoomFields(vals);}; $('roomFields').addEventListener('input',checkRooms); $('saveStoreBtn').onclick=saveStore; if($('storeAddBtn'))$('storeAddBtn').onclick=()=>openStoreModal(); if($('deleteStoreBtn'))$('deleteStoreBtn').onclick=deleteStore; $('userAddBtn').onclick=()=>openUserModal(); $('saveUserBtn').onclick=saveUser; $('saveIncidentBtn').onclick=saveIncident; $('deleteIncidentBtn').onclick=deleteIncident; if($('ipStatus'))$('ipStatus').onchange=toggleProgressAmount;
+$('loginBtn').onclick=login; 
+$('logoutBtn').onclick=logout;
+window.addEventListener("load", async ()=>{
+
+  const login = localStorage.getItem("currentUserLogin");
+  if(!login) return;
+
+  const u = db.users.find(x=>x.login===login);
+  if(!u) return;
+
+  currentUser = u;
+  currentStoreId = visibleStores()[0]?.id || null;
+
+  await loadIncidentsFromFirestore();
+  startIncidentRealtime();
+
+  $("loginView").classList.add("hidden");
+  $("appView").classList.remove("hidden");
+
+  render();
+
+});
+$('storeSelect').onchange=e=>{currentStoreId=e.target.value; render();};
+$('addAirconBtn').onclick=addAircon; $('airconSearch').oninput=renderAircon;
+$('airconFilter').onchange=renderAircon;
+if($('incidentStatusTabs'))$('incidentStatusTabs').onclick=e=>{let b=e.target.closest('button[data-status]');
+if(b)setIncidentStatus(b.dataset.status);};
+['incidentRoomSearch','incidentContentSearch','incidentPersonSearch','incidentDateFrom','incidentDateTo'].forEach(id=>{if($(id))$(id).onkeydown=e=>{if(e.key==='Enter')renderIncidents();};});
+if($('incidentSearchBtn'))$('incidentSearchBtn').onclick=renderIncidents;
+if($('incidentClearBtn'))$('incidentClearBtn').onclick=()=>{['incidentRoomSearch','incidentContentSearch','incidentPersonSearch','incidentDateFrom','incidentDateTo'].forEach(id=>{if($(id))$(id).value='';}); renderIncidents();}; ['archiveRoomSearch','archiveContentSearch','archivePersonSearch','archiveDateFrom','archiveDateTo','archiveStatusSearch'].forEach(id=>{if($(id))$(id).onkeydown=e=>{if(e.key==='Enter')renderArchive();};}); if($('archiveSearchBtn'))$('archiveSearchBtn').onclick=renderArchive; if($('archiveClearBtn'))$('archiveClearBtn').onclick=()=>{['archiveRoomSearch','archiveContentSearch','archivePersonSearch','archiveDateFrom','archiveDateTo'].forEach(id=>{if($(id))$(id).value='';}); if($('archiveStatusSearch'))$('archiveStatusSearch').value='all'; renderArchive();}; $('applyRoomsBtn').onclick=()=>{let pasted=$('bulkRooms').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean); let n=parseInt($('editRoomCount').value||pasted.length||0); let vals=pasted.slice(0,n); while(vals.length<n)vals.push(''); buildRoomFields(vals);}; $('roomFields').addEventListener('input',checkRooms); $('saveStoreBtn').onclick=saveStore; if($('storeAddBtn'))$('storeAddBtn').onclick=()=>openStoreModal(); if($('deleteStoreBtn'))$('deleteStoreBtn').onclick=deleteStore; $('userAddBtn').onclick=()=>openUserModal(); $('saveUserBtn').onclick=saveUser; $('saveIncidentBtn').onclick=saveIncident; $('deleteIncidentBtn').onclick=deleteIncident; if($('ipStatus'))$('ipStatus').onchange=toggleProgressAmount;
 
 function renderIncidentPdfButtons(isExisting){
   const panel = $('incidentProgressPanel');
