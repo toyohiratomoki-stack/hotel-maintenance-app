@@ -145,7 +145,28 @@ function saveUser(){let stores=[...$('uStores').querySelectorAll('input:checked'
 let editingIncidentId=null;
 function formatYen(v){let n=Number(v||0); return n?('¥'+n.toLocaleString()):'-';}
 function fileToDataURL(file){return new Promise((resolve,reject)=>{let r=new FileReader(); r.onload=()=>resolve({id:'m'+Date.now()+Math.random().toString(36).slice(2),name:file.name,type:file.type,url:r.result}); r.onerror=reject; r.readAsDataURL(file);});}
-async function readMediaFiles(input){let files=[...(input?.files||[])]; let media=[]; for(let f of files)media.push(await fileToDataURL(f)); if(input)input.value=''; return media;}
+async function readMediaFiles(input){
+  const files=[...(input?.files||[])];
+  const media=[];
+
+  for(const file of files){
+    const fileName=`incident/${Date.now()}_${Math.random().toString(36).slice(2)}_${file.name}`;
+    const storageRef=window.firebaseStorageRef(window.firebaseStorage,fileName);
+
+    await window.firebaseUploadBytes(storageRef,file);
+    const url=await window.firebaseGetDownloadURL(storageRef);
+
+    media.push({
+      id:'m'+Date.now()+Math.random().toString(36).slice(2),
+      name:file.name,
+      type:file.type,
+      url:url
+    });
+  }
+
+  if(input)input.value='';
+  return media;
+}
 async function readIncidentProgressMedia(){let media=[]; for(let id of ['ipMediaFiles','ipCameraPhoto','ipCameraVideo'])media.push(...await readMediaFiles($(id))); return media;}
 function mediaHTML(m,del){let isVideo=(m.type||'').startsWith('video/'); return `<div class="incidentMediaItem">${isVideo?`<video controls src="${m.url}"></video>`:`<img src="${m.url}" alt="${safeText(m.name||'添付')}">`}<div class="small">${safeText(m.name||'添付')}</div>${del?`<button class="danger" type="button" onclick="${del}">削除</button>`:''}</div>`;}
 function renderIncidentMedia(inc){let el=$('incidentMedia'); if(!el)return; el.innerHTML=(inc.media||[]).map((m,idx)=>mediaHTML(m,`deleteIncidentMedia(${idx})`)).join('')||'<p class="small">写真・動画は未登録です。</p>';}
@@ -404,9 +425,8 @@ function escPdfAttr(v){
 </script>
 
 <script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
-import { getFirestore } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
-import { getStorage } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-storage.js";
+  import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-storage.js";
+
 
 const firebaseConfig = {
   apiKey: "AIzaSyBzxi24mp24dTFGVPR_FwwIsRb_mSkQWh4",
@@ -421,6 +441,9 @@ const firebaseConfig = {
 window.firebaseApp = initializeApp(firebaseConfig);
 window.firebaseDb = getFirestore(window.firebaseApp);
 window.firebaseStorage = getStorage(window.firebaseApp);
+window.firebaseStorageRef = ref;
+window.firebaseUploadBytes = uploadBytes;
+window.firebaseGetDownloadURL = getDownloadURL;
 
 console.log("Firebase connected");
 </script>
