@@ -52,6 +52,9 @@ let db=JSON.parse(localStorage.getItem(LS)||'null')||INITIAL;
 let currentUser=null,currentStoreId=null,currentTab='aircon',editingStoreId=null,editingUserId=null,currentIncidentStatuses=new Set(['progress','open']);
 const $=id=>document.getElementById(id);
 function save(){localStorage.setItem(LS,JSON.stringify(db));}
+async function saveToFirebase(){
+  // 後でここにFirebase保存処理を書きます
+}
 function today(){return new Date('2026-06-29T00:00:00');}
 function parseDate(s){if(!s)return null; const d=new Date(s+'T00:00:00'); return isNaN(d)?null:d;}
 function daysSince(s){let d=parseDate(s); if(!d)return null; return Math.floor((today()-d)/86400000);}
@@ -418,7 +421,6 @@ window.firebaseDb = getFirestore(window.firebaseApp);
 window.firebaseStorage = getStorage(window.firebaseApp);
 
 console.log("Firebase connected");
-</script>
 
 </script>
 </body></html>
