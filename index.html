@@ -151,7 +151,48 @@ save();
 }
 function normalizeIncident(inc){inc.media=Array.isArray(inc.media)?inc.media:[]; inc.progress=Array.isArray(inc.progress)?inc.progress:[]; inc.amount=inc.amount||''; inc.completeDate=inc.completeDate||''; return inc;}
 function currentIncident(){return (db.incidents||[]).find(x=>String(x.id)===String(editingIncidentId));}
-function openIncidentModal(id){editingIncidentId=id||null; let allowed=visibleStores(); let inc=id?(db.incidents||[]).find(x=>String(x.id)===String(id)):null; if(!inc){let sid=currentStoreId&&currentStoreId!=='all'?currentStoreId:(allowed[0]?.id||''); inc={storeId:sid,room:'',title:'',status:'open',person:'',date:new Date().toISOString().slice(0,10),memo:'',amount:'',media:[],progress:[]};} normalizeIncident(inc); let isExisting=!!id; $('incidentModalTitle').textContent=isExisting?'インシデント詳細':'インシデント登録'; $('iStore').innerHTML=allowed.map(s=>`<option value="${s.id}">${safeText(s.name)}</option>`).join(''); $('iStore').value=inc.storeId; $('iRoom').value=inc.room||''; $('iTitle').value=inc.title||''; $('iStatus').value=inc.status||'open'; $('iPerson').value=inc.person||''; $('iDate').value=inc.date||new Date().toISOString().slice(0,10); $('iMemo').value=inc.memo||''; ['iStore','iRoom','iTitle','iStatus','iPerson','iDate'].forEach(k=>{$(k).disabled=isExisting;}); $('ipDate').value=new Date().toISOString().slice(0,10); $('ipPerson').value=currentUser?.name||''; $('ipStatus').value=inc.status||'progress'; $('ipAmount').value=''; $('ipText').value=''; toggleProgressAmount(); $('deleteIncidentBtn').classList.toggle('hidden',!id); $('incidentProgressPanel').style.display=id?'block':'none'; renderIncidentMedia(inc); renderIncidentHistory(inc); $('incidentModal').classList.add('show');}
+function openIncidentModal(id){
+  editingIncidentId=id||null;
+  let allowed=visibleStores();
+  let inc=id?(db.incidents||[]).find(x=>String(x.id)===String(id)):null;
+
+  if(!inc){
+    let sid=currentStoreId&&currentStoreId!=='all'?currentStoreId:(allowed[0]?.id||'');
+    inc={storeId:sid,room:'',title:'',status:'open',person:'',date:new Date().toISOString().slice(0,10),memo:'',amount:'',media:[],progress:[]};
+  }
+
+  normalizeIncident(inc);
+  let isExisting=!!id;
+
+  $('incidentModalTitle').textContent=isExisting?'インシデント詳細':'インシデント登録';
+  $('iStore').innerHTML=allowed.map(s=>`<option value="${s.id}">${safeText(s.name)}</option>`).join('');
+  $('iStore').value=inc.storeId;
+  $('iRoom').value=inc.room||'';
+  $('iTitle').value=inc.title||'';
+  $('iStatus').value=inc.status||'open';
+  $('iPerson').value=inc.person||'';
+  $('iDate').value=inc.date||new Date().toISOString().slice(0,10);
+  $('iMemo').value=inc.memo||'';
+
+  ['iStore','iRoom','iTitle','iStatus','iPerson','iDate'].forEach(k=>{$(k).disabled=isExisting;});
+
+  $('ipDate').value=new Date().toISOString().slice(0,10);
+  $('ipPerson').value=currentUser?.name||'';
+  $('ipStatus').value=inc.status||'progress';
+  $('ipAmount').value='';
+  $('ipText').value='';
+
+  toggleProgressAmount();
+
+  $('deleteIncidentBtn').classList.toggle('hidden',!id);
+  $('incidentProgressPanel').style.display=id?'block':'none';
+
+  renderIncidentMedia(inc);
+  renderIncidentHistory(inc);
+  renderIncidentPdfButtons(isExisting);
+
+  $('incidentModal').classList.add('show');
+}
 function closeIncidentModal(){$('incidentModal').classList.remove('show');}
 async function saveIncident(){let data={storeId:$('iStore').value,room:$('iRoom').value.trim(),title:$('iTitle').value.trim(),status:$('iStatus').value,person:$('iPerson').value.trim(),date:$('iDate').value,memo:$('iMemo').value.trim()}; if(!data.storeId||!data.title)return alert('店舗と件名を入力してください'); if(editingIncidentId){let i=db.incidents.find(x=>String(x.id)===String(editingIncidentId)); if(i){normalizeIncident(i); i.memo=data.memo;}} else {let obj=Object.assign({id:'i'+Date.now(),amount:'',completeDate:'',media:[],progress:[]},data); db.incidents.push(obj); editingIncidentId=obj.id;} save(); openIncidentModal(editingIncidentId); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
 function deleteIncident(){if(!editingIncidentId)return; if(!confirm('このインシデントを削除しますか？'))return; db.incidents=db.incidents.filter(x=>String(x.id)!==String(editingIncidentId)); save(); closeIncidentModal(); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
@@ -177,6 +218,139 @@ function printArchivePdf(){let list=currentIncidentListForPrint(true); let rows=
 
 $('loginBtn').onclick=login; $('logoutBtn').onclick=logout; $('storeSelect').onchange=e=>{currentStoreId=e.target.value; render();}; $('addAirconBtn').onclick=addAircon; $('airconSearch').oninput=renderAircon; $('airconFilter').onchange=renderAircon; if($('incidentStatusTabs'))$('incidentStatusTabs').onclick=e=>{let b=e.target.closest('button[data-status]'); if(b)setIncidentStatus(b.dataset.status);}; ['incidentRoomSearch','incidentContentSearch','incidentPersonSearch','incidentDateFrom','incidentDateTo'].forEach(id=>{if($(id))$(id).onkeydown=e=>{if(e.key==='Enter')renderIncidents();};}); if($('incidentSearchBtn'))$('incidentSearchBtn').onclick=renderIncidents; if($('incidentClearBtn'))$('incidentClearBtn').onclick=()=>{['incidentRoomSearch','incidentContentSearch','incidentPersonSearch','incidentDateFrom','incidentDateTo'].forEach(id=>{if($(id))$(id).value='';}); renderIncidents();}; ['archiveRoomSearch','archiveContentSearch','archivePersonSearch','archiveDateFrom','archiveDateTo','archiveStatusSearch'].forEach(id=>{if($(id))$(id).onkeydown=e=>{if(e.key==='Enter')renderArchive();};}); if($('archiveSearchBtn'))$('archiveSearchBtn').onclick=renderArchive; if($('archiveClearBtn'))$('archiveClearBtn').onclick=()=>{['archiveRoomSearch','archiveContentSearch','archivePersonSearch','archiveDateFrom','archiveDateTo'].forEach(id=>{if($(id))$(id).value='';}); if($('archiveStatusSearch'))$('archiveStatusSearch').value='all'; renderArchive();}; $('applyRoomsBtn').onclick=()=>{let pasted=$('bulkRooms').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean); let n=parseInt($('editRoomCount').value||pasted.length||0); let vals=pasted.slice(0,n); while(vals.length<n)vals.push(''); buildRoomFields(vals);}; $('roomFields').addEventListener('input',checkRooms); $('saveStoreBtn').onclick=saveStore; if($('storeAddBtn'))$('storeAddBtn').onclick=()=>openStoreModal(); if($('deleteStoreBtn'))$('deleteStoreBtn').onclick=deleteStore; $('userAddBtn').onclick=()=>openUserModal(); $('saveUserBtn').onclick=saveUser; $('saveIncidentBtn').onclick=saveIncident; $('deleteIncidentBtn').onclick=deleteIncident; if($('ipStatus'))$('ipStatus').onchange=toggleProgressAmount;
 
-window.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.modal.show').forEach(m=>m.classList.remove('show'))});
+function renderIncidentPdfButtons(isExisting){
+  const panel = $('incidentProgressPanel');
+  if(!panel) return;
+
+  let box = $('incidentPdfButtons');
+  if(!box){
+    box = document.createElement('div');
+    box.id = 'incidentPdfButtons';
+    box.className = 'actions';
+    box.style.margin = '12px 0';
+    panel.parentNode.insertBefore(box, panel);
+  }
+
+  if(!isExisting){
+    box.innerHTML = '';
+    box.style.display = 'none';
+    return;
+  }
+
+  box.style.display = 'flex';
+  box.innerHTML = `
+    <button class="iconbtn" type="button" onclick="printIncidentPDF(true)">📄 写真ありPDF</button>
+    <button class="iconbtn" type="button" onclick="printIncidentPDF(false)">📄 写真なしPDF</button>
+  `;
+}
+
+function printIncidentPDF(withPhotos){
+  const inc = (db.incidents||[]).find(x=>String(x.id)===String(editingIncidentId));
+  if(!inc){
+    alert('インシデントが選択されていません');
+    return;
+  }
+
+  normalizeIncident(inc);
+
+  const store = storeById(inc.storeId);
+  const printedAt = new Date().toLocaleString('ja-JP');
+  const progress = inc.progress || [];
+  const media = inc.media || [];
+
+  const photosBlock = withPhotos ? `
+    <h2>写真</h2>
+    ${
+      media.length
+        ? `<div class="photos">${media.map(m=>incidentPdfMediaHtml(m)).join('')}</div>`
+        : `<p>写真はありません。</p>`
+    }
+  ` : '';
+
+  const html = `
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>インシデント詳細PDF</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#222;margin:24px;line-height:1.6}
+h1{font-size:22px;margin:0 0 14px;border-bottom:2px solid #333;padding-bottom:8px}
+h2{font-size:17px;margin:22px 0 8px;border-left:5px solid #6d5aa5;padding-left:8px}
+table{width:100%;border-collapse:collapse;margin-top:10px}
+th,td{border:1px solid #ccc;padding:8px;text-align:left;vertical-align:top}
+th{width:150px;background:#f3f0f7}
+.memo{white-space:pre-wrap}
+.historyItem{border:1px solid #ccc;border-radius:8px;padding:10px;margin:8px 0;page-break-inside:avoid}
+.photos{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+.photos img{width:180px;height:135px;object-fit:cover;border:1px solid #ccc;border-radius:6px}
+.footer{margin-top:24px;font-size:12px;color:#666;text-align:right}
+@page{size:A4;margin:12mm}
+</style>
+</head>
+<body>
+<h1>インシデント詳細</h1>
+
+<table>
+<tr><th>ホテル名</th><td>${escPdf(store?.name||'-')}</td></tr>
+<tr><th>部屋番号</th><td>${escPdf(inc.room||'-')}</td></tr>
+<tr><th>件名</th><td>${escPdf(inc.title||'-')}</td></tr>
+<tr><th>対応状況</th><td>${escPdf(incidentStatusLabel(inc.status))}</td></tr>
+<tr><th>担当者</th><td>${escPdf(inc.person||'-')}</td></tr>
+<tr><th>発生日</th><td>${escPdf(inc.date||'-')}</td></tr>
+<tr><th>金額</th><td>${escPdf(formatYen(inc.amount))}</td></tr>
+<tr><th>メモ</th><td class="memo">${escPdf(inc.memo||'-')}</td></tr>
+</table>
+
+<h2>対応履歴</h2>
+${
+  progress.length
+    ? progress.map(p=>`
+      <div class="historyItem">
+        <b>${escPdf(p.status?incidentStatusLabel(p.status):'経過')}</b><br>
+        日付：${escPdf(p.date||'-')}<br>
+        記録者：${escPdf(p.person||'-')}<br>
+        金額：${escPdf(formatYen(p.amount))}<br>
+        <div class="memo">${escPdf(p.text||p.memo||'')}</div>
+      </div>
+    `).join('')
+    : '<p>対応履歴はありません。</p>'
+}
+
+${photosBlock}
+
+<div class="footer">出力日時：${escPdf(printedAt)}</div>
+
+<script>
+window.onload=function(){window.print();}
+<\/script>
+</body>
+</html>`;
+
+  const w = window.open('', '_blank');
+  if(!w){
+    alert('ポップアップがブロックされています。ブラウザの設定を確認してください。');
+    return;
+  }
+
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
+function incidentPdfMediaHtml(m){
+  const src = typeof m === 'string' ? m : (m.url || m.data || m.src || '');
+  if(!src) return '';
+  return `<img src="${escPdfAttr(src)}">`;
+}
+
+function escPdf(v){
+  return String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+function escPdfAttr(v){
+  return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}window.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.modal.show').forEach(m=>m.classList.remove('show'))});
+
 </script>
 </body></html>
