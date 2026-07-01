@@ -519,13 +519,14 @@ function printAirconPdf(){
     return;
   }
 
-  // ホテル内で一番部屋数が多い階に列数を合わせる。
-  // 部屋がない列は空白セルにして、全階の縦位置を揃える。
-  let maxCols=Math.max(1,...floors.map(fl=>groups[fl].length));
-  maxCols=Math.min(maxCols,12); // 横A4に収まる上限。通常ホテルは5〜8列想定。
+  // A4横1ページ固定。全階をホテル内の最大列数に合わせ、部屋がない列は空白で揃える。
+  const maxCols=Math.max(1,...floors.map(fl=>groups[fl].length));
+  const floorCount=floors.length;
+  const compact=floorCount>=9 || maxCols>=9;
+  const tiny=floorCount>=12 || maxCols>=13;
 
   function padRows(rs){
-    let arr=rs.slice(0,maxCols);
+    let arr=rs.slice();
     while(arr.length<maxCols)arr.push(null);
     return arr;
   }
@@ -540,28 +541,27 @@ function printAirconPdf(){
 
   openPrintWindow(
     'エアコン洗浄一覧',
-    `<div class="airconPrintPage"><div class="header"><h1>エアコン洗浄一覧</h1><div class="meta">ホテル：${safeText(s.name)}　印刷日：${todayStr}</div></div>${blocks}${legend}</div>`,
+    `<div class="airconPrintPage ${compact?'compact':''} ${tiny?'tiny':''}"><div class="header"><h1>エアコン洗浄一覧</h1><div class="meta">ホテル：${safeText(s.name)}　印刷日：${todayStr}</div></div>${blocks}${legend}</div>`,
     `
-    @page{size:A4 landscape;margin:6mm}
+    @page{size:A4 landscape;margin:5mm}
     html,body{width:100%;height:100%;overflow:hidden;background:#fff}
     body{padding:0!important;margin:0!important}
-    .airconPrintPage{height:185mm;display:flex;flex-direction:column;gap:2.2mm;overflow:hidden}
-    .header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #111;padding-bottom:2.5mm;margin-bottom:2mm;flex:0 0 auto}
-    h1{font-size:20px;margin:0;font-weight:900;letter-spacing:.02em}
-    .meta{font-size:10.5px;white-space:nowrap}
+    .airconPrintPage{height:190mm;display:flex;flex-direction:column;gap:1.8mm;overflow:hidden}
+    .header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #111;padding-bottom:2mm;margin-bottom:1.5mm;flex:0 0 auto}
+    h1{font-size:19px;margin:0;font-weight:900;letter-spacing:.02em}
+    .meta{font-size:10px;white-space:nowrap}
     .floorPrint{break-inside:avoid;page-break-inside:avoid;margin:0;flex:1 1 0;min-height:0}
-    .airconGridPrint{width:100%;height:100%;border-collapse:collapse;table-layout:fixed;font-size:9.5px}
-    .airconGridPrint th,.airconGridPrint td{border:1px solid #999;text-align:center;vertical-align:middle;padding:1px 2px;line-height:1.05;white-space:nowrap;overflow:hidden}
-    .airconGridPrint .floorLabel{width:20mm;background:#1f1f1f;color:#fff;font-weight:900;font-size:12px;letter-spacing:.04em}
-    .airconGridPrint .label{width:26mm;background:#f5f5f5;font-weight:800;color:#111}
-    .airconGridPrint .roomNo{font-size:14px;font-weight:900}
-    .statusCell{font-size:14px;font-weight:900}
-    .statusCell.bad,.badMark{color:#e11}
-    .statusCell.warn,.warnMark{color:#f0aa00}
-    .statusCell.ok,.okMark{color:#24a828}
-    .legend{border:1px solid #bbb;display:flex;align-items:center;justify-content:center;gap:7mm;font-size:11px;margin-top:2.5mm;padding:2mm;flex:0 0 auto;white-space:nowrap}
-    .legend b{margin-right:4mm}
-    .badMark,.warnMark,.okMark{font-weight:900;font-size:16px}
+    .airconGridPrint{width:100%;height:100%;border-collapse:collapse;table-layout:fixed;font-size:9px}
+    .airconGridPrint th,.airconGridPrint td{border:1px solid #888;text-align:center;vertical-align:middle;padding:1px 2px;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:clip}
+    .airconGridPrint .floorLabel{width:18mm;background:#1f1f1f;color:#fff;font-weight:900;font-size:11px;letter-spacing:.03em}
+    .airconGridPrint .label{width:21mm;background:#f5f5f5;font-weight:800;color:#111}
+    .airconGridPrint .roomNo{font-size:12.5px;font-weight:900}
+    .statusCell{font-size:12.5px;font-weight:900}
+    .compact{gap:1.1mm}.compact .header{padding-bottom:1.5mm;margin-bottom:1mm}.compact .airconGridPrint{font-size:8px}.compact .airconGridPrint .floorLabel{width:15mm;font-size:10px}.compact .airconGridPrint .label{width:18mm}.compact .airconGridPrint .roomNo{font-size:11px}.compact .statusCell{font-size:11px}
+    .tiny{gap:.7mm}.tiny .header{padding-bottom:1mm;margin-bottom:.6mm}.tiny h1{font-size:17px}.tiny .meta{font-size:8.5px}.tiny .airconGridPrint{font-size:7px}.tiny .airconGridPrint .floorLabel{width:12mm;font-size:8.5px}.tiny .airconGridPrint .label{width:14mm}.tiny .airconGridPrint .roomNo{font-size:9px}.tiny .statusCell{font-size:10px}.tiny .legend{display:none}
+    .statusCell.bad,.badMark{color:#e11}.statusCell.warn,.warnMark{color:#f0aa00}.statusCell.ok,.okMark{color:#24a828}
+    .legend{border:1px solid #bbb;display:flex;align-items:center;justify-content:center;gap:6mm;font-size:10px;margin-top:1.5mm;padding:1.4mm;flex:0 0 auto;white-space:nowrap}
+    .legend b{margin-right:3mm}.badMark,.warnMark,.okMark{font-weight:900;font-size:14px}
     `
   );
 }
@@ -751,14 +751,14 @@ function printIncidentPDF(withPhotos){
   }
 
   normalizeIncident(inc);
-
   const store = storeById(inc.storeId);
-  const progress = inc.progress || [];
-  const finalProgress = progress.length ? progress[progress.length - 1] : null;
-  const completedDate = finalProgress?.date || inc.completeDate || '-';
-  const repairAmount = Number(inc.amount || finalProgress?.amount || 0) || 0;
-  const startPhoto = firstIncidentImage(inc.media || []);
-  const finalPhoto = firstIncidentImage(finalProgress?.media || []);
+  const progress = Array.isArray(inc.progress) ? inc.progress : [];
+  const lastProgress = progress.length ? progress[progress.length - 1] : null;
+  const doneProgress = [...progress].reverse().find(p=>p.status==='done') || lastProgress;
+  const completedDate = doneProgress?.date || inc.completeDate || '-';
+  const repairAmount = Number(inc.amount || doneProgress?.amount || lastProgress?.amount || 0) || 0;
+  const startPhoto = firstIncidentImage(inc.media || []) || legacyIncidentImage(inc);
+  const finalPhoto = latestIncidentProgressImage(progress);
 
   const photosBlock = withPhotos ? `
     <div class="photoGrid">
@@ -781,12 +781,12 @@ function printIncidentPDF(withPhotos){
 <title>インシデントPDF</title>
 <style>
 *{box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#222;margin:0;padding:10mm;line-height:1.35;background:#fff}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#222;margin:0;padding:10mm;line-height:1.32;background:#fff}
 h1{font-size:22px;margin:0 0 8px;border-bottom:2px solid #333;padding-bottom:6px;letter-spacing:.04em}
 .infoTable{width:100%;border-collapse:collapse;margin-top:8px;font-size:12.5px;table-layout:fixed}
 .infoTable th,.infoTable td{border:1px solid #bbb;padding:6px 8px;text-align:left;vertical-align:top}
 .infoTable th{width:120px;background:#f3f0f7;font-weight:700}
-.contentCell{white-space:pre-wrap;min-height:46px}
+.contentCell{white-space:pre-wrap;min-height:42px}
 .photoGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;page-break-inside:avoid}
 .photoBox{border:1px solid #bbb;border-radius:8px;padding:8px;min-height:245px;background:#fff;display:flex;flex-direction:column;page-break-inside:avoid}
 .photoTitle{font-weight:700;font-size:13px;margin-bottom:6px;text-align:center;background:#f3f0f7;border-radius:6px;padding:5px}
@@ -809,7 +809,18 @@ h1{font-size:22px;margin:0 0 8px;border-bottom:2px solid #333;padding-bottom:6px
 </table>
 ${photosBlock}
 <script>
-window.onload=function(){window.print();}
+function printAfterImages(){
+  const imgs=[...document.images];
+  if(!imgs.length){window.print();return;}
+  let left=imgs.length;
+  const done=()=>{left--; if(left<=0)setTimeout(()=>window.print(),150);};
+  imgs.forEach(img=>{
+    if(img.complete)done();
+    else{img.onload=done; img.onerror=done;}
+  });
+  setTimeout(()=>window.print(),3000);
+}
+window.onload=printAfterImages;
 <\/script>
 </body>
 </html>`;
@@ -825,18 +836,37 @@ window.onload=function(){window.print();}
   w.document.close();
 }
 
+function mediaImageUrl(m){
+  if(!m)return '';
+  const url = typeof m === 'string' ? m : (m.url || m.data || m.src || '');
+  if(!url)return '';
+  const type = typeof m === 'string' ? '' : String(m.type || m.mimeType || '');
+  const name = typeof m === 'string' ? '' : String(m.name || '');
+  // 既存データは type が "image" の場合がある。Firebase Storage URLやdata:imageも写真として扱う。
+  if(url.startsWith('data:image/'))return url;
+  if(type==='image' || type.startsWith('image/'))return url;
+  if(!type && !/\.(mp4|mov|webm|avi|m4v)(\?|$)/i.test(name) && !/\.(mp4|mov|webm|avi|m4v)(\?|$)/i.test(url))return url;
+  return '';
+}
 function firstIncidentImage(list){
   const arr = Array.isArray(list) ? list : [];
   for(const m of arr){
-    const url = typeof m === 'string' ? m : (m?.url || m?.data || m?.src || '');
-    const type = typeof m === 'string' ? '' : String(m?.type || '');
-    if(!url) continue;
-    if(type && !type.startsWith('image/')) continue;
-    return url;
+    const url=mediaImageUrl(m);
+    if(url)return url;
   }
   return '';
 }
-
+function latestIncidentProgressImage(progress){
+  const arr=Array.isArray(progress)?progress:[];
+  for(let i=arr.length-1;i>=0;i--){
+    const url=firstIncidentImage(arr[i]?.media || arr[i]?.photos || []);
+    if(url)return url;
+  }
+  return '';
+}
+function legacyIncidentImage(inc){
+  return inc?.img || inc?.image || inc?.photo || '';
+}
 function incidentPdfMediaHtml(m){
   const src = typeof m === 'string' ? m : (m.url || m.data || m.src || '');
   if(!src) return '';
