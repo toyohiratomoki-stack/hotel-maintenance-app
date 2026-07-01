@@ -18,6 +18,7 @@
 .phoneLink{color:#2563eb;font-weight:800;text-decoration:none}.phoneLink:hover{text-decoration:underline}
 @media print{body{background:#fff}.noPrint,.side,.storebar,.top,.login,.modal{display:none!important}.printOnly{display:block!important}@page{size:A4 landscape;margin:8mm}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 <section class="login" id="loginView"><div class="loginbox"><h1>ホテル設備管理ログイン</h1><div class="form"><input id="loginId" placeholder="ログインID"><input id="loginPw" type="password" placeholder="パスワード"><button class="primary" id="loginBtn">ログイン</button><p id="loginMsg" class="error"></p></div></div></section>
@@ -509,9 +510,23 @@ if(b)setIncidentStatus(b.dataset.status);};
 if($('incidentSearchBtn'))$('incidentSearchBtn').onclick=renderIncidents;
 if($('incidentClearBtn'))$('incidentClearBtn').onclick=()=>{['incidentRoomSearch','incidentContentSearch','incidentPersonSearch','incidentDateFrom','incidentDateTo'].forEach(id=>{if($(id))$(id).value='';}); renderIncidents();}; ['archiveRoomSearch','archiveContentSearch','archivePersonSearch','archiveDateFrom','archiveDateTo','archiveStatusSearch'].forEach(id=>{if($(id))$(id).onkeydown=e=>{if(e.key==='Enter')renderArchive();};}); if($('archiveSearchBtn'))$('archiveSearchBtn').onclick=renderArchive; if($('archiveClearBtn'))$('archiveClearBtn').onclick=()=>{['archiveRoomSearch','archiveContentSearch','archivePersonSearch','archiveDateFrom','archiveDateTo'].forEach(id=>{if($(id))$(id).value='';}); if($('archiveStatusSearch'))$('archiveStatusSearch').value='all'; renderArchive();}; $('applyRoomsBtn').onclick=()=>{let pasted=$('bulkRooms').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean); let n=parseInt($('editRoomCount').value||pasted.length||0); let vals=pasted.slice(0,n); while(vals.length<n)vals.push(''); buildRoomFields(vals);}; $('roomFields').addEventListener('input',checkRooms); $('saveStoreBtn').onclick=saveStore; if($('storeAddBtn'))$('storeAddBtn').onclick=()=>openStoreModal(); if($('deleteStoreBtn'))$('deleteStoreBtn').onclick=deleteStore; $('userAddBtn').onclick=()=>openUserModal(); $('saveUserBtn').onclick=saveUser; $('saveIncidentBtn').onclick=saveIncident; $('deleteIncidentBtn').onclick=deleteIncident; if($('ipStatus'))$('ipStatus').onchange=toggleProgressAmount; if($('excelImportInput'))$('excelImportInput').onchange=handleExcelImport;
 
-function openExcelImport(){
+function loadXlsxLibrary(){
+  return new Promise((resolve,reject)=>{
+    if(window.XLSX)return resolve();
+    const old=document.getElementById('xlsxRuntimeLoader');
+    if(old){old.addEventListener('load',()=>resolve(),{once:true});old.addEventListener('error',()=>reject(new Error('xlsx load failed')),{once:true});return;}
+    const sc=document.createElement('script');
+    sc.id='xlsxRuntimeLoader';
+    sc.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    sc.onload=()=>resolve();
+    sc.onerror=()=>reject(new Error('xlsx load failed'));
+    document.head.appendChild(sc);
+  });
+}
+async function openExcelImport(){
   const input=$('excelImportInput');
   if(!input)return alert('Excel取込の準備ができていません');
+  try{await loadXlsxLibrary();}catch(e){return alert('Excel読込ライブラリを読み込めませんでした。ネット接続を確認してください。');}
   input.value='';
   input.click();
 }
