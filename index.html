@@ -650,7 +650,7 @@ function currentIncidentListForPrint(includeArchive){
 function printIncidentListPdf(){let list=currentIncidentListForPrint(false); let rows=list.map(i=>`<tr><td>${safeText(storeById(i.storeId)?.name||'-')}</td><td>${safeText(i.room||'-')}</td><td>${safeText(i.title||'-')}</td><td>${safeText(incidentStatusLabel(i.status))}</td><td>${safeText(i.person||'-')}</td><td>${safeText(i.date||'-')}</td></tr>`).join(''); openPrintWindow('インシデント一覧',`<div class="header"><h1>インシデント一覧</h1><div class="meta">印刷日：${new Date().toLocaleDateString('ja-JP')}</div></div><table class="printTable"><tr><th>店舗</th><th>部屋</th><th>内容</th><th>状況</th><th>担当</th><th>発生日</th></tr>${rows}</table>`);}
 function printArchivePdf(){let list=currentIncidentListForPrint(true); let rows=list.map(i=>`<tr><td>${safeText(storeById(i.storeId)?.name||'-')}</td><td>${safeText(i.room||'-')}</td><td>${safeText(i.title||'-')}</td><td>${safeText(incidentStatusLabel(archiveStatusValue(i)))}</td><td>${safeText(i.person||'-')}</td><td>${formatYen(i.amount)}</td><td>${safeText(i.date||'-')}</td><td>${safeText(archiveCompleteDate(i)||'-')}</td></tr>`).join(''); openPrintWindow('アーカイブ一覧',`<div class="header"><h1>アーカイブ一覧</h1><div class="meta">印刷日：${new Date().toLocaleDateString('ja-JP')}</div></div><table class="printTable"><tr><th>店舗</th><th>部屋</th><th>内容</th><th>状況</th><th>担当</th><th>金額</th><th>発生日</th><th>完了日</th></tr>${rows}</table>`);}
 function archivePdfCard(i){let store=storeById(i.storeId);let progress=Array.isArray(i.progress)?i.progress:[];let last=progress.length?progress[progress.length-1]:null;let done=[...progress].reverse().find(p=>p.status==='done')||last;let complete=done?.date||i.completeDate||'-';let amount=Number(i.amount||done?.amount||last?.amount||0)||0;let memo=[i.title,i.memo].filter(Boolean).join('\n');return `<section class="archiveCard"><div class="cardHead"><b>${safeText(store?.name||'-')}</b><span>${safeText(incidentStatusLabel(archiveStatusValue(i)))}</span></div><table><tr><th>部屋</th><td>${safeText(i.room||'-')}</td><th>発生日</th><td>${safeText(i.date||'-')}</td></tr><tr><th>完了日</th><td>${safeText(complete)}</td><th>金額</th><td>${formatYen(amount)}</td></tr></table><div class="cardTitle">${safeText(memo||'-')}</div></section>`;}
-function archiveDetailPdfPage(inc, idx){
+function archiveDetailPdfCard(inc, idx){
   normalizeIncident(inc);
   const store = storeById(inc.storeId);
   const progress = Array.isArray(inc.progress) ? inc.progress : [];
@@ -660,45 +660,56 @@ function archiveDetailPdfPage(inc, idx){
   const repairAmount = Number(inc.amount || doneProgress?.amount || lastProgress?.amount || 0) || 0;
   const startPhoto = firstIncidentImage(inc.media || []) || legacyIncidentImage(inc);
   const finalPhoto = latestIncidentProgressImage(progress);
+  const detailText = `${inc.title||inc.memo||'-'}${inc.title&&inc.memo?'\n'+inc.memo:''}`;
   return `
-<section class="incidentPdfPage">
-<h1>インシデント報告書</h1>
-<table class="infoTable">
-<tr><th>ホテル名</th><td>${escPdf(store?.name||'-')}</td></tr>
-<tr><th>部屋番号</th><td>${escPdf(inc.room||'-')}</td></tr>
-<tr><th>発生日</th><td>${escPdf(inc.date||'-')}</td></tr>
-<tr><th>完了日</th><td>${escPdf(completedDate)}</td></tr>
-<tr><th>ステータス</th><td>${escPdf(incidentStatusLabel(archiveStatusValue(inc)))}</td></tr>
-<tr><th>修理金額</th><td>${escPdf(formatYen(repairAmount))}</td></tr>
-<tr><th>インシデント内容</th><td class="contentCell">${escPdf(inc.title||inc.memo||'-')}${inc.title&&inc.memo?'\n'+escPdf(inc.memo):''}</td></tr>
-</table>
-<div class="photoGrid">
-  <div class="photoBox"><div class="photoTitle">登録時写真</div>${startPhoto ? `<img src="${escPdfAttr(startPhoto)}">` : `<div class="noPhoto">画像なし</div>`}</div>
-  <div class="photoBox"><div class="photoTitle">最終履歴写真</div>${finalPhoto ? `<img src="${escPdfAttr(finalPhoto)}">` : `<div class="noPhoto">画像なし</div>`}</div>
-</div>
+<section class="incidentMiniCard">
+  <h2>インシデント報告書</h2>
+  <table class="infoTable">
+    <tr><th>ホテル名</th><td>${escPdf(store?.name||'-')}</td></tr>
+    <tr><th>部屋番号</th><td>${escPdf(inc.room||'-')}</td></tr>
+    <tr><th>発生日</th><td>${escPdf(inc.date||'-')}</td></tr>
+    <tr><th>完了日</th><td>${escPdf(completedDate)}</td></tr>
+    <tr><th>ステータス</th><td>${escPdf(incidentStatusLabel(archiveStatusValue(inc)))}</td></tr>
+    <tr><th>修理金額</th><td>${escPdf(formatYen(repairAmount))}</td></tr>
+    <tr><th>内容</th><td class="contentCell">${escPdf(detailText)}</td></tr>
+  </table>
+  <div class="photoGrid">
+    <div class="photoBox"><div class="photoTitle">登録時写真</div>${startPhoto ? `<img src="${escPdfAttr(startPhoto)}">` : `<div class="noPhoto">画像なし</div>`}</div>
+    <div class="photoBox"><div class="photoTitle">最終履歴写真</div>${finalPhoto ? `<img src="${escPdfAttr(finalPhoto)}">` : `<div class="noPhoto">画像なし</div>`}</div>
+  </div>
 </section>`;
+}
+function archiveDetailPdfPage(items, pageIndex){
+  return `<div class="pdfPage">${items.map(archiveDetailPdfCard).join('')}</div>`;
+}
+function chunkArray(arr, size){
+  const out=[];
+  for(let i=0;i<arr.length;i+=size)out.push(arr.slice(i,i+size));
+  return out;
 }
 function printSelectedArchivePdf(){
   let list=archiveAllIncidents().filter(i=>selectedArchiveIds.has(String(i.id))).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
   if(!list.length){alert('PDF印刷するインシデントにチェックを入れてください');return;}
+  const pages=chunkArray(list,4);
   const body=`<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>アーカイブ選択PDF</title><style>
 *{box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#222;margin:0;background:#fff;line-height:1.32}
-.incidentPdfPage{min-height:277mm;padding:10mm;page-break-after:always;background:#fff}
-.incidentPdfPage:last-child{page-break-after:auto}
-h1{font-size:22px;margin:0 0 8px;border-bottom:2px solid #333;padding-bottom:6px;letter-spacing:.04em}
-.infoTable{width:100%;border-collapse:collapse;margin-top:8px;font-size:12.5px;table-layout:fixed}
-.infoTable th,.infoTable td{border:1px solid #bbb;padding:6px 8px;text-align:left;vertical-align:top}
-.infoTable th{width:120px;background:#f3f0f7;font-weight:700}
-.contentCell{white-space:pre-wrap;min-height:42px}
-.photoGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;page-break-inside:avoid}
-.photoBox{border:1px solid #bbb;border-radius:8px;padding:8px;min-height:245px;background:#fff;display:flex;flex-direction:column;page-break-inside:avoid}
-.photoTitle{font-weight:700;font-size:13px;margin-bottom:6px;text-align:center;background:#f3f0f7;border-radius:6px;padding:5px}
-.photoBox img{width:100%;height:195px;object-fit:contain;border:1px solid #ddd;border-radius:6px;background:#fafafa}
-.noPhoto{height:195px;border:1px dashed #bbb;border-radius:6px;display:grid;place-items:center;color:#777;background:#fafafa;font-size:15px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#222;margin:0;background:#fff;line-height:1.18}
+.pdfPage{width:210mm;min-height:297mm;padding:6mm;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:4mm;page-break-after:always;background:#fff}
+.pdfPage:last-child{page-break-after:auto}
+.incidentMiniCard{border:1px solid #999;border-radius:8px;padding:4mm;overflow:hidden;background:#fff;display:flex;flex-direction:column;min-height:0}
+h2{font-size:13px;margin:0 0 2.5mm;border-bottom:1.5px solid #333;padding-bottom:1.5mm;letter-spacing:.03em}
+.infoTable{width:100%;border-collapse:collapse;font-size:8.2px;table-layout:fixed}
+.infoTable th,.infoTable td{border:1px solid #bbb;padding:2px 3px;text-align:left;vertical-align:top;line-height:1.2}
+.infoTable th{width:22mm;background:#f3f0f7;font-weight:700}
+.contentCell{white-space:pre-wrap;height:18mm;max-height:18mm;overflow:hidden}
+.photoGrid{display:grid;grid-template-columns:1fr 1fr;gap:2.2mm;margin-top:2.5mm;min-height:0;flex:1}
+.photoBox{border:1px solid #bbb;border-radius:5px;padding:2mm;background:#fff;display:flex;flex-direction:column;min-height:0}
+.photoTitle{font-weight:700;font-size:8px;margin-bottom:1.4mm;text-align:center;background:#f3f0f7;border-radius:4px;padding:1.4mm 1mm;white-space:nowrap}
+.photoBox img{width:100%;height:39mm;object-fit:contain;border:1px solid #ddd;border-radius:4px;background:#fafafa}
+.noPhoto{height:39mm;border:1px dashed #bbb;border-radius:4px;display:grid;place-items:center;color:#777;background:#fafafa;font-size:9px}
 @page{size:A4 portrait;margin:0}
-@media print{body{padding:0}.photoBox{break-inside:avoid}.photoGrid{break-inside:avoid}}
-</style></head><body>${list.map(archiveDetailPdfPage).join('')}<script>
+@media print{body{padding:0}.pdfPage{break-after:page}.incidentMiniCard,.photoBox,.photoGrid{break-inside:avoid}}
+</style></head><body>${pages.map(archiveDetailPdfPage).join('')}<script>
 function printAfterImages(){const imgs=[...document.images];if(!imgs.length){window.print();return;}let left=imgs.length;const done=()=>{left--;if(left<=0)setTimeout(()=>window.print(),150);};imgs.forEach(img=>{if(img.complete)done();else{img.onload=done;img.onerror=done;}});setTimeout(()=>window.print(),3000);}
 window.onload=printAfterImages;
 <\/script></body></html>`;
