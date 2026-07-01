@@ -21,6 +21,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
+<input id="excelImportInput" type="file" accept=".xlsx,.xls,.xlsm,.csv" style="display:none">
 <section class="login" id="loginView"><div class="loginbox"><h1>ホテル設備管理ログイン</h1><div class="form"><input id="loginId" placeholder="ログインID"><input id="loginPw" type="password" placeholder="パスワード"><button class="primary" id="loginBtn">ログイン</button><p id="loginMsg" class="error"></p></div></div></section>
 <div class="app hidden" id="appView"><aside class="side"><div class="brand" id="brand">HOTEL</div><nav class="nav" id="nav"></nav><button class="iconbtn" id="logoutBtn">ログアウト</button></aside><main class="main"><div class="storebar storebarOnly"><select id="storeSelect"></select></div><div id="incidentStatusTabs" class="incidentTabs"><button data-status="progress">対応中</button><button data-status="open">未対応</button></div><div class="top"><h1 id="pageTitle">エアコン洗浄</h1><div class="actions" id="pageActions"></div></div>
 <section id="dashboardView" class="hidden"><div class="grid" id="dashboardStats"></div></section>
