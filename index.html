@@ -346,14 +346,34 @@ async function saveIncident(){
 
   let newMedia = await readMediaFiles($('iMediaFiles'));
 
+  function applyIncidentDoneFields(inc){
+    normalizeIncident(inc);
+    if(inc.status==='done'){
+      let lastProgress=(inc.progress||[]).slice(-1)[0];
+      let lastDone=[...(inc.progress||[])].reverse().find(p=>p.status==='done');
+      inc.completeDate=(lastDone?.date || lastProgress?.date || inc.completeDate || new Date().toISOString().slice(0,10));
+      inc.amount=Number(lastDone?.amount || inc.amount || 0);
+    }else{
+      inc.completeDate='';
+      inc.amount=0;
+    }
+  }
+
   if(editingIncidentId){
     let i=db.incidents.find(x=>String(x.id)===String(editingIncidentId));
     if(i){
       normalizeIncident(i);
+      i.storeId=data.storeId;
+      i.room=data.room;
+      i.title=data.title;
+      i.status=data.status;
+      i.person=data.person;
+      i.date=data.date;
       i.memo=data.memo;
       if(newMedia.length){
         i.media.push(...newMedia);
       }
+      applyIncidentDoneFields(i);
     }
   }else{
     let obj=Object.assign({
@@ -364,6 +384,7 @@ async function saveIncident(){
       progress:[]
     },data);
 
+    applyIncidentDoneFields(obj);
     db.incidents.push(obj);
     editingIncidentId=obj.id;
   }
