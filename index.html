@@ -753,17 +753,24 @@ function printIncidentPDF(withPhotos){
   normalizeIncident(inc);
 
   const store = storeById(inc.storeId);
-  const printedAt = new Date().toLocaleString('ja-JP');
   const progress = inc.progress || [];
-  const media = inc.media || [];
+  const finalProgress = progress.length ? progress[progress.length - 1] : null;
+  const completedDate = finalProgress?.date || inc.completeDate || '-';
+  const repairAmount = Number(inc.amount || finalProgress?.amount || 0) || 0;
+  const startPhoto = firstIncidentImage(inc.media || []);
+  const finalPhoto = firstIncidentImage(finalProgress?.media || []);
 
   const photosBlock = withPhotos ? `
-    <h2>写真</h2>
-    ${
-      media.length
-        ? `<div class="photos">${media.map(m=>incidentPdfMediaHtml(m)).join('')}</div>`
-        : `<p>写真はありません。</p>`
-    }
+    <div class="photoGrid">
+      <div class="photoBox">
+        <div class="photoTitle">登録時写真</div>
+        ${startPhoto ? `<img src="${escPdfAttr(startPhoto)}">` : `<div class="noPhoto">画像なし</div>`}
+      </div>
+      <div class="photoBox">
+        <div class="photoTitle">最終履歴写真</div>
+        ${finalPhoto ? `<img src="${escPdfAttr(finalPhoto)}">` : `<div class="noPhoto">画像なし</div>`}
+      </div>
+    </div>
   ` : '';
 
   const html = `
@@ -771,55 +778,36 @@ function printIncidentPDF(withPhotos){
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>インシデント詳細PDF</title>
+<title>インシデントPDF</title>
 <style>
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#222;margin:24px;line-height:1.6}
-h1{font-size:22px;margin:0 0 14px;border-bottom:2px solid #333;padding-bottom:8px}
-h2{font-size:17px;margin:22px 0 8px;border-left:5px solid #6d5aa5;padding-left:8px}
-table{width:100%;border-collapse:collapse;margin-top:10px}
-th,td{border:1px solid #ccc;padding:8px;text-align:left;vertical-align:top}
-th{width:150px;background:#f3f0f7}
-.memo{white-space:pre-wrap}
-.historyItem{border:1px solid #ccc;border-radius:8px;padding:10px;margin:8px 0;page-break-inside:avoid}
-.photos{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
-.photos img{width:180px;height:135px;object-fit:cover;border:1px solid #ccc;border-radius:6px}
-.footer{margin-top:24px;font-size:12px;color:#666;text-align:right}
-@page{size:A4;margin:12mm}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#222;margin:0;padding:10mm;line-height:1.35;background:#fff}
+h1{font-size:22px;margin:0 0 8px;border-bottom:2px solid #333;padding-bottom:6px;letter-spacing:.04em}
+.infoTable{width:100%;border-collapse:collapse;margin-top:8px;font-size:12.5px;table-layout:fixed}
+.infoTable th,.infoTable td{border:1px solid #bbb;padding:6px 8px;text-align:left;vertical-align:top}
+.infoTable th{width:120px;background:#f3f0f7;font-weight:700}
+.contentCell{white-space:pre-wrap;min-height:46px}
+.photoGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;page-break-inside:avoid}
+.photoBox{border:1px solid #bbb;border-radius:8px;padding:8px;min-height:245px;background:#fff;display:flex;flex-direction:column;page-break-inside:avoid}
+.photoTitle{font-weight:700;font-size:13px;margin-bottom:6px;text-align:center;background:#f3f0f7;border-radius:6px;padding:5px}
+.photoBox img{width:100%;height:195px;object-fit:contain;border:1px solid #ddd;border-radius:6px;background:#fafafa}
+.noPhoto{height:195px;border:1px dashed #bbb;border-radius:6px;display:grid;place-items:center;color:#777;background:#fafafa;font-size:15px}
+@page{size:A4 portrait;margin:10mm}
+@media print{body{padding:0}.photoBox{break-inside:avoid}.photoGrid{break-inside:avoid}}
 </style>
 </head>
 <body>
-<h1>インシデント詳細</h1>
-
-<table>
+<h1>インシデント報告書</h1>
+<table class="infoTable">
 <tr><th>ホテル名</th><td>${escPdf(store?.name||'-')}</td></tr>
 <tr><th>部屋番号</th><td>${escPdf(inc.room||'-')}</td></tr>
-<tr><th>件名</th><td>${escPdf(inc.title||'-')}</td></tr>
-<tr><th>対応状況</th><td>${escPdf(incidentStatusLabel(inc.status))}</td></tr>
-<tr><th>担当者</th><td>${escPdf(inc.person||'-')}</td></tr>
 <tr><th>発生日</th><td>${escPdf(inc.date||'-')}</td></tr>
-<tr><th>金額</th><td>${escPdf(formatYen(inc.amount))}</td></tr>
-<tr><th>メモ</th><td class="memo">${escPdf(inc.memo||'-')}</td></tr>
+<tr><th>完了日</th><td>${escPdf(completedDate)}</td></tr>
+<tr><th>ステータス</th><td>${escPdf(incidentStatusLabel(inc.status))}</td></tr>
+<tr><th>修理金額</th><td>${escPdf(formatYen(repairAmount))}</td></tr>
+<tr><th>インシデント内容</th><td class="contentCell">${escPdf(inc.title||inc.memo||'-')}${inc.title&&inc.memo?'\n'+escPdf(inc.memo):''}</td></tr>
 </table>
-
-<h2>対応履歴</h2>
-${
-  progress.length
-    ? progress.map(p=>`
-      <div class="historyItem">
-        <b>${escPdf(p.status?incidentStatusLabel(p.status):'経過')}</b><br>
-        日付：${escPdf(p.date||'-')}<br>
-        記録者：${escPdf(p.person||'-')}<br>
-        金額：${escPdf(formatYen(p.amount))}<br>
-        <div class="memo">${escPdf(p.text||p.memo||'')}</div>
-      </div>
-    `).join('')
-    : '<p>対応履歴はありません。</p>'
-}
-
 ${photosBlock}
-
-<div class="footer">出力日時：${escPdf(printedAt)}</div>
-
 <script>
 window.onload=function(){window.print();}
 <\/script>
@@ -835,6 +823,18 @@ window.onload=function(){window.print();}
   w.document.open();
   w.document.write(html);
   w.document.close();
+}
+
+function firstIncidentImage(list){
+  const arr = Array.isArray(list) ? list : [];
+  for(const m of arr){
+    const url = typeof m === 'string' ? m : (m?.url || m?.data || m?.src || '');
+    const type = typeof m === 'string' ? '' : String(m?.type || '');
+    if(!url) continue;
+    if(type && !type.startsWith('image/')) continue;
+    return url;
+  }
+  return '';
 }
 
 function incidentPdfMediaHtml(m){
