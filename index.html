@@ -223,30 +223,47 @@ async function saveUser(){
 let editingIncidentId=null;
 function formatYen(v){let n=Number(v||0); return n?('¥'+n.toLocaleString()):'-';}
 function fileToDataURL(file){return new Promise((resolve,reject)=>{let r=new FileReader(); r.onload=()=>resolve({id:'m'+Date.now()+Math.random().toString(36).slice(2),name:file.name,type:file.type,url:r.result}); r.onerror=reject; r.readAsDataURL(file);});}
+function safeStorageName(name){return String(name||'file').replace(/[\/:*?"<>|#%&{}$!@+=`]/g,'_').replace(/\s+/g,'_');}
+function mediaKindFromFile(file){let t=String(file?.type||''); return t.startsWith('video')?'video':'image';}
+async function uploadMediaFileToStorage(file){
+  if(!window.firebaseStorage || !window.firebaseStorageRef || !window.firebaseUploadBytes || !window.firebaseGetDownloadURL){
+    throw new Error('Firebase Storage is not ready');
+  }
+  const path=`incident-media/${new Date().toISOString().slice(0,10)}/${Date.now()}_${Math.random().toString(36).slice(2)}_${safeStorageName(file.name)}`;
+  const storageRef=window.firebaseStorageRef(window.firebaseStorage,path);
+  await window.firebaseUploadBytes(storageRef,file);
+  const url=await window.firebaseGetDownloadURL(storageRef);
+  return {path,url};
+}
+async function deleteStoredMedia(m){
+  try{
+    if(!m || !m.path || !window.firebaseStorage || !window.firebaseStorageRef || !window.firebaseDeleteObject)return;
+    await window.firebaseDeleteObject(window.firebaseStorageRef(window.firebaseStorage,m.path));
+  }catch(e){console.warn('Storage delete error',e);}
+}
 async function readMediaFiles(input){
   const files=[...(input?.files||[])];
   const media=[];
-
+  if(!files.length)return media;
+  if(!window.firebaseStorage || !window.firebaseStorageRef || !window.firebaseUploadBytes || !window.firebaseGetDownloadURL){
+    alert('Firebase Storageの準備ができていません。少し待ってからもう一度保存してください。');
+    return media;
+  }
   for(const file of files){
-    const fileName=`incident/${Date.now()}_${Math.random().toString(36).slice(2)}_${file.name}`;
-    const storageRef=window.firebaseStorageRef(window.firebaseStorage,fileName);
-
-    await window.firebaseUploadBytes(storageRef,file);
-    const url=await window.firebaseGetDownloadURL(storageRef);
-
+    const uploaded=await uploadMediaFileToStorage(file);
     media.push({
       id:'m'+Date.now()+Math.random().toString(36).slice(2),
-      type:file.type.startsWith("video")?"video":"image",
-      url:url,
+      type:mediaKindFromFile(file),
+      url:uploaded.url,
+      path:uploaded.path,
       name:file.name
     });
   }
-
   if(input)input.value='';
   return media;
 }
 async function readIncidentProgressMedia(){let media=[]; for(let id of ['ipMediaFiles','ipCameraPhoto','ipCameraVideo'])media.push(...await readMediaFiles($(id))); return media;}
-function mediaHTML(m,del){let isVideo=(m.type||'').startsWith('video/'); return `<div class="incidentMediaItem">${isVideo?`<video controls src="${m.url}"></video>`:`<img src="${m.url}" alt="${safeText(m.name||'添付')}">`}<div class="small">${safeText(m.name||'添付')}</div>${del?`<button class="danger" type="button" onclick="${del}">削除</button>`:''}</div>`;}
+function mediaHTML(m,del){let isVideo=String(m.type||'').startsWith('video'); return `<div class="incidentMediaItem">${isVideo?`<video controls src="${m.url}"></video>`:`<img src="${m.url}" alt="${safeText(m.name||'添付')}">`}<div class="small">${safeText(m.name||'添付')}</div>${del?`<button class="danger" type="button" onclick="${del}">削除</button>`:''}</div>`;}
 function renderIncidentMedia(inc){let el=$('incidentMedia'); if(!el)return; el.innerHTML=(inc.media||[]).map((m,idx)=>mediaHTML(m,`deleteIncidentMedia(${idx})`)).join('')||'<p class="small">写真・動画は未登録です。</p>';}
 function renderIncidentHistory(inc){
 normalizeIncident(inc);
@@ -445,8 +462,8 @@ function startUsersRealtime(){
   });
 }
 function startAllRealtime(){startUsersRealtime(); startStoresRealtime(); startIncidentRealtime();}
-async function deleteIncident(){if(!editingIncidentId)return; if(!confirm('このインシデントを削除しますか？'))return; const id=editingIncidentId; db.incidents=db.incidents.filter(x=>String(x.id)!==String(id)); save(); await deleteDocFromFirestore('incidents',id); closeIncidentModal(); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
-async function deleteIncidentMedia(idx){let inc=currentIncident(); if(!inc)return; normalizeIncident(inc); inc.media.splice(idx,1); save(); await saveIncidentToFirestore(inc.id); renderIncidentMedia(inc); renderIncidents();}
+async function deleteIncident(){if(!editingIncidentId)return; if(!confirm('このインシデントを削除しますか？'))return; const id=editingIncidentId; const inc=(db.incidents||[]).find(x=>String(x.id)===String(id)); if(inc){normalizeIncident(inc); for(const m of inc.media||[])await deleteStoredMedia(m); for(const p of inc.progress||[])for(const m of p.media||[])await deleteStoredMedia(m);} db.incidents=db.incidents.filter(x=>String(x.id)!==String(id)); save(); await deleteDocFromFirestore('incidents',id); closeIncidentModal(); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
+async function deleteIncidentMedia(idx){let inc=currentIncident(); if(!inc)return; normalizeIncident(inc); const removed=inc.media.splice(idx,1)[0]; await deleteStoredMedia(removed); save(); await saveIncidentToFirestore(inc.id); renderIncidentMedia(inc); renderIncidents();}
 async function addIncidentProgress(){
   let inc=currentIncident();
   if(!inc)return alert('先にインシデントを保存してください');
@@ -471,8 +488,8 @@ async function addIncidentProgress(){
 }
 function toggleProgressAmount(){let el=$('ipAmount'); if(!el)return; el.style.display='';}
 function recalcIncidentFromProgress(inc){normalizeIncident(inc); let hist=inc.progress; let last=hist[hist.length-1]; if(last){inc.status=last.status||inc.status; let done=[...hist].reverse().find(p=>p.status==='done'); inc.completeDate=done?done.date:''; inc.amount=done?Number(done.amount||0):0;}else{inc.status=inc.status==='done'?'open':inc.status; inc.completeDate=''; inc.amount=0;}}
-async function deleteIncidentProgress(index){let inc=currentIncident(); if(!inc)return; normalizeIncident(inc); let idx=Number(index); if(Number.isNaN(idx)||idx<0||idx>=inc.progress.length)return; inc.progress.splice(idx,1); recalcIncidentFromProgress(inc); save(); await saveIncidentToFirestore(inc.id); renderIncidentHistory(inc); renderIncidentMedia(inc); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
-async function deleteIncidentProgressById(id){let inc=currentIncident(); if(!inc)return; normalizeIncident(inc); let before=inc.progress.length; inc.progress=inc.progress.filter(h=>String(h.id)!==String(id)); if(inc.progress.length===before)return; recalcIncidentFromProgress(inc); save(); await saveIncidentToFirestore(inc.id); renderIncidentHistory(inc); renderIncidentMedia(inc); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
+async function deleteIncidentProgress(index){let inc=currentIncident(); if(!inc)return; normalizeIncident(inc); let idx=Number(index); if(Number.isNaN(idx)||idx<0||idx>=inc.progress.length)return; const removed=inc.progress.splice(idx,1)[0]; for(const m of removed?.media||[])await deleteStoredMedia(m); recalcIncidentFromProgress(inc); save(); await saveIncidentToFirestore(inc.id); renderIncidentHistory(inc); renderIncidentMedia(inc); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
+async function deleteIncidentProgressById(id){let inc=currentIncident(); if(!inc)return; normalizeIncident(inc); let removed=[]; let before=inc.progress.length; inc.progress=inc.progress.filter(h=>{let keep=String(h.id)!==String(id); if(!keep)removed.push(h); return keep;}); if(inc.progress.length===before)return; for(const h of removed)for(const m of h.media||[])await deleteStoredMedia(m); recalcIncidentFromProgress(inc); save(); await saveIncidentToFirestore(inc.id); renderIncidentHistory(inc); renderIncidentMedia(inc); renderIncidents(); if(currentTab==='archive')renderArchive(); renderDashboard();}
 
 function shortDate(d){if(!d)return '未洗浄'; let p=String(d).split('-'); return p.length===3 ? `${p[0].slice(2)}/${Number(p[1])}/${Number(p[2])}` : safeText(d);}
 function airconPrintStatus(r){let k=statusFor(r.latestDate).key; return k==='ok'?'○':k==='warn'?'△':'×';}
@@ -482,8 +499,72 @@ function openPrintWindow(title,body,css=''){
   w.document.write(`<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${safeText(title)}</title><style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#222;margin:0;padding:14px}h1{font-size:20px;margin:0 0 8px}.header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #333;padding-bottom:6px;margin-bottom:10px}.meta{font-size:12px}.printTable{width:100%;border-collapse:collapse;font-size:11px}.printTable th,.printTable td{border:1px solid #999;padding:5px;text-align:left}.floorPrint{margin:8px 0 10px}.floorName{font-weight:800;margin:0 0 4px;font-size:13px}.airconGridPrint{width:100%;border-collapse:collapse;table-layout:fixed;font-size:10px}.airconGridPrint td{border:1px solid #999;text-align:center;padding:3px;vertical-align:middle}.airconGridPrint .label{width:38px;font-weight:700;background:#f3f3f3}.statusCell{font-size:16px;font-weight:900}@page{size:A4 landscape;margin:7mm}${css}</style></head><body>${body}<script>setTimeout(()=>{window.print();},300)<\/script></body></html>`);
   w.document.close();
 }
-function printAirconPdf(){let s=storeById(currentStoreId); if(!s)return; let rooms=(s.rooms||[]).filter(r=>isValidRoomNumber(r.room)).sort((a,b)=>String(a.room).localeCompare(String(b.room),'ja',{numeric:true})); let groups={}; rooms.forEach(r=>{let fl=roomFloor(r.room); (groups[fl]||(groups[fl]=[])).push(r);}); let floors=Object.keys(groups).sort((a,b)=>(parseInt(a)||999)-(parseInt(b)||999)); let todayStr=new Date().toLocaleDateString('ja-JP'); let blocks=floors.map(fl=>{let rs=groups[fl]; let cols=Math.max(1,rs.length); return `<div class="floorPrint"><div class="floorName">【${safeText(fl)}】</div><table class="airconGridPrint"><tr><td class="label">部屋番号</td>${rs.map(r=>`<td>${safeText(r.room)}</td>`).join('')}</tr><tr><td class="label">洗浄日</td>${rs.map(r=>`<td>${shortDate(r.latestDate)}</td>`).join('')}</tr><tr><td class="label">状態</td>${rs.map(r=>`<td class="statusCell">${airconPrintStatus(r)}</td>`).join('')}</tr></table></div>`;}).join(''); openPrintWindow('エアコン洗浄一覧',`<div class="header"><h1>エアコン洗浄一覧</h1><div class="meta">ホテル：${safeText(s.name)}　印刷日：${todayStr}</div></div>${blocks}`,'body{padding:8px}.floorPrint{break-inside:avoid}.airconGridPrint td{height:18px;padding:2px;font-size:9px}.statusCell{font-size:14px}');}
-function currentIncidentListForPrint(includeDone=false){let allowedIds=visibleStores().map(s=>s.id); let list=(db.incidents||[]).filter(i=>allowedIds.includes(i.storeId)); if(currentStoreId!=='all')list=list.filter(i=>i.storeId===currentStoreId); if(!includeDone)list=list.filter(i=>i.status==='progress'||i.status==='open'); return list.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));}
+function printAirconPdf(){
+  let s=storeById(currentStoreId);
+  if(!s)return;
+
+  let rooms=(s.rooms||[])
+    .filter(r=>isValidRoomNumber(r.room))
+    .sort((a,b)=>String(a.room).localeCompare(String(b.room),'ja',{numeric:true}));
+
+  let groups={};
+  rooms.forEach(r=>{
+    let fl=roomFloor(r.room);
+    (groups[fl]||(groups[fl]=[])).push(r);
+  });
+
+  let floors=Object.keys(groups).sort((a,b)=>(parseInt(a)||999)-(parseInt(b)||999));
+  if(!floors.length){
+    openPrintWindow('エアコン洗浄一覧',`<div class="header"><h1>エアコン洗浄一覧</h1><div class="meta">ホテル：${safeText(s.name)}　印刷日：${new Date().toLocaleDateString('ja-JP')}</div></div><p>表示できる部屋がありません。</p>`);
+    return;
+  }
+
+  // ホテル内で一番部屋数が多い階に列数を合わせる。
+  // 部屋がない列は空白セルにして、全階の縦位置を揃える。
+  let maxCols=Math.max(1,...floors.map(fl=>groups[fl].length));
+  maxCols=Math.min(maxCols,12); // 横A4に収まる上限。通常ホテルは5〜8列想定。
+
+  function padRows(rs){
+    let arr=rs.slice(0,maxCols);
+    while(arr.length<maxCols)arr.push(null);
+    return arr;
+  }
+
+  let todayStr=new Date().toLocaleDateString('ja-JP');
+  let blocks=floors.map(fl=>{
+    let rs=padRows(groups[fl]);
+    return `<div class="floorPrint"><table class="airconGridPrint"><tr><th class="floorLabel" rowspan="3">【${safeText(fl)}】</th><td class="label">部屋番号</td>${rs.map(r=>`<td class="roomNo">${r?safeText(r.room):''}</td>`).join('')}</tr><tr><td class="label">洗浄日</td>${rs.map(r=>`<td>${r?shortDate(r.latestDate):''}</td>`).join('')}</tr><tr><td class="label">状態</td>${rs.map(r=>{let st=r?statusFor(r.latestDate).key:'';let mark=r?airconPrintStatus(r):'';return `<td class="statusCell ${st}">${mark}</td>`}).join('')}</tr></table></div>`;
+  }).join('');
+
+  let legend=`<div class="legend"><b>状態の見方</b><span class="badMark">×</span><span>1年以上または未洗浄</span><span class="warnMark">△</span><span>半年〜1年未満</span><span class="okMark">○</span><span>0〜半年未満</span></div>`;
+
+  openPrintWindow(
+    'エアコン洗浄一覧',
+    `<div class="airconPrintPage"><div class="header"><h1>エアコン洗浄一覧</h1><div class="meta">ホテル：${safeText(s.name)}　印刷日：${todayStr}</div></div>${blocks}${legend}</div>`,
+    `
+    @page{size:A4 landscape;margin:6mm}
+    html,body{width:100%;height:100%;overflow:hidden;background:#fff}
+    body{padding:0!important;margin:0!important}
+    .airconPrintPage{height:185mm;display:flex;flex-direction:column;gap:2.2mm;overflow:hidden}
+    .header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #111;padding-bottom:2.5mm;margin-bottom:2mm;flex:0 0 auto}
+    h1{font-size:20px;margin:0;font-weight:900;letter-spacing:.02em}
+    .meta{font-size:10.5px;white-space:nowrap}
+    .floorPrint{break-inside:avoid;page-break-inside:avoid;margin:0;flex:1 1 0;min-height:0}
+    .airconGridPrint{width:100%;height:100%;border-collapse:collapse;table-layout:fixed;font-size:9.5px}
+    .airconGridPrint th,.airconGridPrint td{border:1px solid #999;text-align:center;vertical-align:middle;padding:1px 2px;line-height:1.05;white-space:nowrap;overflow:hidden}
+    .airconGridPrint .floorLabel{width:20mm;background:#1f1f1f;color:#fff;font-weight:900;font-size:12px;letter-spacing:.04em}
+    .airconGridPrint .label{width:26mm;background:#f5f5f5;font-weight:800;color:#111}
+    .airconGridPrint .roomNo{font-size:14px;font-weight:900}
+    .statusCell{font-size:14px;font-weight:900}
+    .statusCell.bad,.badMark{color:#e11}
+    .statusCell.warn,.warnMark{color:#f0aa00}
+    .statusCell.ok,.okMark{color:#24a828}
+    .legend{border:1px solid #bbb;display:flex;align-items:center;justify-content:center;gap:7mm;font-size:11px;margin-top:2.5mm;padding:2mm;flex:0 0 auto;white-space:nowrap}
+    .legend b{margin-right:4mm}
+    .badMark,.warnMark,.okMark{font-weight:900;font-size:16px}
+    `
+  );
+}
 function printIncidentListPdf(){let list=currentIncidentListForPrint(false); let rows=list.map(i=>`<tr><td>${safeText(storeById(i.storeId)?.name||'-')}</td><td>${safeText(i.room||'-')}</td><td>${safeText(i.title||'-')}</td><td>${safeText(incidentStatusLabel(i.status))}</td><td>${safeText(i.person||'-')}</td><td>${safeText(i.date||'-')}</td></tr>`).join(''); openPrintWindow('インシデント一覧',`<div class="header"><h1>インシデント一覧</h1><div class="meta">印刷日：${new Date().toLocaleDateString('ja-JP')}</div></div><table class="printTable"><tr><th>店舗</th><th>部屋</th><th>内容</th><th>状況</th><th>担当</th><th>発生日</th></tr>${rows}</table>`);}
 function printArchivePdf(){let list=currentIncidentListForPrint(true); let rows=list.map(i=>`<tr><td>${safeText(storeById(i.storeId)?.name||'-')}</td><td>${safeText(i.room||'-')}</td><td>${safeText(i.title||'-')}</td><td>${safeText(incidentStatusLabel(i.status))}</td><td>${safeText(i.person||'-')}</td><td>${formatYen(i.amount)}</td><td>${safeText(i.date||'-')}</td><td>${safeText(i.completeDate||'-')}</td></tr>`).join(''); openPrintWindow('アーカイブ一覧',`<div class="header"><h1>アーカイブ一覧</h1><div class="meta">印刷日：${new Date().toLocaleDateString('ja-JP')}</div></div><table class="printTable"><tr><th>店舗</th><th>部屋</th><th>内容</th><th>状況</th><th>担当</th><th>金額</th><th>発生日</th><th>完了日</th></tr>${rows}</table>`);}
 
@@ -777,7 +858,7 @@ window.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelector
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
 import { getFirestore, doc, setDoc, deleteDoc, collection, getDocs, onSnapshot } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-storage.js";
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-storage.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBzxi24mp24dTFGVPR_FwwIsRb_mSkQWh4",
@@ -802,6 +883,7 @@ window.firebaseGetDocs = getDocs;
 window.firebaseStorageRef = ref;
 window.firebaseUploadBytes = uploadBytes;
 window.firebaseGetDownloadURL = getDownloadURL;
+window.firebaseDeleteObject = deleteObject;
 
 window.firebaseOnSnapshot = onSnapshot;
 
