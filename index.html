@@ -104,7 +104,7 @@ async function login(){
 }
 function logout(){localStorage.removeItem("currentUserLogin");currentUser=null; localStorage.removeItem('lastUser'); $('appView').classList.add('hidden'); $('loginView').classList.remove('hidden');}
 function render(){if(!currentUser)return; let tabs=allowedTabs(); if(!tabs.some(t=>t[0]===currentTab)) currentTab=tabs[0][0]; $('nav').innerHTML=tabs.map(t=>`<button class="${currentTab===t[0]?'active':''}" onclick="setTab('${t[0]}')"><b>${t[1]}</b>${t[2]}</button>`).join(''); $('pageTitle').textContent=tabs.find(t=>t[0]===currentTab)?.[2]||''; let stores=visibleStores(); let hideStoreBar=currentTab==='stores'||currentTab==='users'; $('storeSelect').parentElement.classList.toggle('hidden',hideStoreBar); if(currentTab==='incidents'||currentTab==='archive'){if(!currentStoreId||(!stores.some(s=>s.id===currentStoreId)&&currentStoreId!=='all'))currentStoreId='all'; $('storeSelect').innerHTML='<option value="all">全店舗</option>'+stores.map(s=>`<option value="${s.id}">${s.name}</option>`).join(''); $('brand').textContent=currentStoreId==='all'?'全店舗':(storeById(currentStoreId)?.name||'HOTEL').slice(0,5);} else {if(!stores.some(s=>s.id===currentStoreId))currentStoreId=stores[0]?.id||null; $('storeSelect').innerHTML=stores.map(s=>`<option value="${s.id}">${s.name}</option>`).join(''); $('brand').textContent=(storeById(currentStoreId)?.name||'HOTEL').slice(0,5);} $('storeSelect').value=currentStoreId||''; ['dashboard','incidents','archive','aircon','stores','users','reports'].forEach(v=>$(v+'View')?.classList.add('hidden')); $(currentTab+'View')?.classList.remove('hidden'); updateIncidentTabs(); renderRoomsData(); renderActions(); if(currentTab==='aircon')renderAircon(); if(currentTab==='dashboard')renderDashboard(); if(currentTab==='stores')renderStores(); if(currentTab==='users')renderUsers(); if(currentTab==='reports')renderReports(); if(currentTab==='incidents')renderIncidents(); if(currentTab==='archive')renderArchive();}
-function renderActions(){let html=''; if(currentTab==='aircon')html='<button class="iconbtn" type="button" onclick="printAirconPdf()">PDF印刷</button>'; if(currentTab==='incidents')html='<button class="iconbtn" type="button" onclick="printIncidentListPdf()">PDF印刷</button>'; if(currentTab==='archive')html='<button class="iconbtn" type="button" onclick="printArchivePdf()">PDF印刷</button>'; $('pageActions').innerHTML=html;}
+function renderActions(){let html=''; if(currentTab==='aircon')html='<button class="iconbtn" type="button" onclick="printAirconPdf()">PDF印刷</button>'; if(currentTab==='incidents')html='<button class="iconbtn" type="button" onclick="printIncidentListPdf()">PDF印刷</button>'; if(currentTab==='archive')html='<button class="iconbtn" type="button" onclick="printArchivePdf()">PDF印刷</button>'; if(currentUser&&currentUser.role==='admin'&&(currentTab==='aircon'||currentTab==='stores'))html+='<button class="iconbtn" type="button" onclick="openExcelImport()">Excel取込</button>'; $('pageActions').innerHTML=html;}
 function renderRoomsData(){let s=storeById(currentStoreId); $('roomsData').innerHTML=(s?.rooms||[]).filter(r=>isValidRoomNumber(r.room)).map(r=>`<option value="${r.room}"></option>`).join('');}
 function roomFloor(room){let m=String(room||'').match(/^(\d+)/); if(!m)return 'その他'; let n=m[1]; return n.length>=3 ? String(parseInt(n.slice(0,-2),10))+'階' : 'その他';}
 function renderAircon(){let s=storeById(currentStoreId); if(!s){$('airconCards').innerHTML='<p>店舗がありません</p>';return} let q=$('airconSearch').value.trim().toLowerCase(); let f=$('airconFilter').value; let rooms=s.rooms.filter(r=>isValidRoomNumber(r.room)).filter(r=>{let st=statusFor(r.latestDate); let text=[r.room,r.latestDate,r.manufacturer,r.worker,r.memo,st.text].join(' ').toLowerCase(); return (!q||text.includes(q))&&(f==='all'||st.key===f);}).sort((a,b)=>String(a.room).localeCompare(String(b.room),'ja',{numeric:true})); let groups={}; rooms.forEach(r=>{let fl=roomFloor(r.room); (groups[fl]||(groups[fl]=[])).push(r);}); let floors=Object.keys(groups).sort((a,b)=>parseInt(a)||999 - (parseInt(b)||999)); $('airconCards').innerHTML=floors.map(fl=>`<section class="floorBlock"><div class="floorTitle">${fl}</div><div class="floorGrid">${groups[fl].map(r=>{let st=statusFor(r.latestDate);return `<div class="airconCard" onclick="openAirconRoom('${r.room.replace(/'/g,"\'")}')"><h3>${r.room}</h3><p>最新：<span class="${st.cls}">${r.latestDate||'未登録'}</span></p><p>状態：<span class="${st.cls}">${st.text}</span></p><p class="small">経過：${st.days}　作業者：${r.worker||'-'}</p><p class="small">メーカー：${r.manufacturer||'-'}</p>${r.memo?`<p class="small">${r.memo}</p>`:''}</div>`}).join('')}</div></section>`).join('')||'<p class="small">表示する部屋がありません。</p>';}
@@ -488,24 +488,17 @@ function printArchivePdf(){let list=currentIncidentListForPrint(true); let rows=
 $('loginBtn').onclick=login; 
 $('logoutBtn').onclick=logout;
 window.addEventListener("load", async ()=>{
-
   const login = localStorage.getItem("currentUserLogin");
   if(!login) return;
-
-  const u = db.users.find(x=>x.login===login);
+  let u = db.users.find(x=>x.login===login);
+  if(!u){await loadUsersFromFirestore(false); u=db.users.find(x=>x.login===login);}
   if(!u) return;
-
   currentUser = u;
   currentStoreId = visibleStores()[0]?.id || null;
-
-  await loadIncidentsFromFirestore();
-  startIncidentRealtime();
-
   $("loginView").classList.add("hidden");
   $("appView").classList.remove("hidden");
-
   render();
-
+  syncAllFromFirestore(false).then(()=>{refreshCurrentUser(); startAllRealtime(); render();}).catch(e=>console.warn('auto sync skipped',e));
 });
 $('storeSelect').onchange=e=>{currentStoreId=e.target.value; render();};
 $('addAirconBtn').onclick=addAircon; $('airconSearch').oninput=renderAircon;
@@ -514,7 +507,118 @@ if($('incidentStatusTabs'))$('incidentStatusTabs').onclick=e=>{let b=e.target.cl
 if(b)setIncidentStatus(b.dataset.status);};
 ['incidentRoomSearch','incidentContentSearch','incidentPersonSearch','incidentDateFrom','incidentDateTo'].forEach(id=>{if($(id))$(id).onkeydown=e=>{if(e.key==='Enter')renderIncidents();};});
 if($('incidentSearchBtn'))$('incidentSearchBtn').onclick=renderIncidents;
-if($('incidentClearBtn'))$('incidentClearBtn').onclick=()=>{['incidentRoomSearch','incidentContentSearch','incidentPersonSearch','incidentDateFrom','incidentDateTo'].forEach(id=>{if($(id))$(id).value='';}); renderIncidents();}; ['archiveRoomSearch','archiveContentSearch','archivePersonSearch','archiveDateFrom','archiveDateTo','archiveStatusSearch'].forEach(id=>{if($(id))$(id).onkeydown=e=>{if(e.key==='Enter')renderArchive();};}); if($('archiveSearchBtn'))$('archiveSearchBtn').onclick=renderArchive; if($('archiveClearBtn'))$('archiveClearBtn').onclick=()=>{['archiveRoomSearch','archiveContentSearch','archivePersonSearch','archiveDateFrom','archiveDateTo'].forEach(id=>{if($(id))$(id).value='';}); if($('archiveStatusSearch'))$('archiveStatusSearch').value='all'; renderArchive();}; $('applyRoomsBtn').onclick=()=>{let pasted=$('bulkRooms').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean); let n=parseInt($('editRoomCount').value||pasted.length||0); let vals=pasted.slice(0,n); while(vals.length<n)vals.push(''); buildRoomFields(vals);}; $('roomFields').addEventListener('input',checkRooms); $('saveStoreBtn').onclick=saveStore; if($('storeAddBtn'))$('storeAddBtn').onclick=()=>openStoreModal(); if($('deleteStoreBtn'))$('deleteStoreBtn').onclick=deleteStore; $('userAddBtn').onclick=()=>openUserModal(); $('saveUserBtn').onclick=saveUser; $('saveIncidentBtn').onclick=saveIncident; $('deleteIncidentBtn').onclick=deleteIncident; if($('ipStatus'))$('ipStatus').onchange=toggleProgressAmount;
+if($('incidentClearBtn'))$('incidentClearBtn').onclick=()=>{['incidentRoomSearch','incidentContentSearch','incidentPersonSearch','incidentDateFrom','incidentDateTo'].forEach(id=>{if($(id))$(id).value='';}); renderIncidents();}; ['archiveRoomSearch','archiveContentSearch','archivePersonSearch','archiveDateFrom','archiveDateTo','archiveStatusSearch'].forEach(id=>{if($(id))$(id).onkeydown=e=>{if(e.key==='Enter')renderArchive();};}); if($('archiveSearchBtn'))$('archiveSearchBtn').onclick=renderArchive; if($('archiveClearBtn'))$('archiveClearBtn').onclick=()=>{['archiveRoomSearch','archiveContentSearch','archivePersonSearch','archiveDateFrom','archiveDateTo'].forEach(id=>{if($(id))$(id).value='';}); if($('archiveStatusSearch'))$('archiveStatusSearch').value='all'; renderArchive();}; $('applyRoomsBtn').onclick=()=>{let pasted=$('bulkRooms').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean); let n=parseInt($('editRoomCount').value||pasted.length||0); let vals=pasted.slice(0,n); while(vals.length<n)vals.push(''); buildRoomFields(vals);}; $('roomFields').addEventListener('input',checkRooms); $('saveStoreBtn').onclick=saveStore; if($('storeAddBtn'))$('storeAddBtn').onclick=()=>openStoreModal(); if($('deleteStoreBtn'))$('deleteStoreBtn').onclick=deleteStore; $('userAddBtn').onclick=()=>openUserModal(); $('saveUserBtn').onclick=saveUser; $('saveIncidentBtn').onclick=saveIncident; $('deleteIncidentBtn').onclick=deleteIncident; if($('ipStatus'))$('ipStatus').onchange=toggleProgressAmount; if($('excelImportInput'))$('excelImportInput').onchange=handleExcelImport;
+
+function openExcelImport(){
+  const input=$('excelImportInput');
+  if(!input)return alert('Excel取込の準備ができていません');
+  input.value='';
+  input.click();
+}
+function normalizeExcelText(v){return String(v??'').replace(/\s+/g,' ').trim();}
+function normalizeStoreName(v){return normalizeExcelText(v).toLowerCase().replace(/[\s　・･().（）\-_/]/g,'');}
+function normalizeExcelDate(v){
+  if(v===null||v===undefined||v==='')return '';
+  if(v instanceof Date && !isNaN(v))return v.toISOString().slice(0,10);
+  if(typeof v==='number' && isFinite(v)){
+    const d=new Date(Math.round((v-25569)*86400*1000));
+    if(!isNaN(d))return d.toISOString().slice(0,10);
+  }
+  let s=String(v).trim();
+  if(!s)return '';
+  s=s.replace(/[年月\.]/g,'/').replace(/日/g,'').replace(/\s.*$/,'');
+  let m=s.match(/^(20\d{2}|19\d{2})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if(m)return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+  m=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](20\d{2}|19\d{2})$/);
+  if(m)return `${m[3]}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
+  const d=new Date(s);
+  if(!isNaN(d) && d.getFullYear()>1990)return d.toISOString().slice(0,10);
+  return '';
+}
+function findOrCreateStoreByExcelSheet(sheetName,idx){
+  const key=normalizeStoreName(sheetName);
+  let s=(db.stores||[]).find(x=>normalizeStoreName(x.name)===key||normalizeStoreName(x.code)===key);
+  if(!s)s=(db.stores||[]).find(x=>key.includes(normalizeStoreName(x.name))||normalizeStoreName(x.name).includes(key));
+  if(!s){
+    const code='H'+String((db.stores||[]).length+1).padStart(3,'0');
+    s={id:'h'+Date.now()+String(idx).padStart(2,'0'),code,name:sheetName,address:'',phone:'',manager:'',memo:'Excel再取込',rooms:[]};
+    db.stores.push(s);
+  }
+  if(!Array.isArray(s.rooms))s.rooms=[];
+  return s;
+}
+function findRoomDateNear(cells,rowIndex,colIndex){
+  const sameRow=cells[rowIndex]||[];
+  for(let c=colIndex+1;c<Math.min(sameRow.length,colIndex+10);c++){
+    const d=normalizeExcelDate(sameRow[c]);
+    if(d)return d;
+  }
+  for(let r=rowIndex+1;r<Math.min(cells.length,rowIndex+4);r++){
+    const row=cells[r]||[];
+    for(let c=Math.max(0,colIndex-1);c<Math.min(row.length,colIndex+3);c++){
+      const d=normalizeExcelDate(row[c]);
+      if(d)return d;
+    }
+  }
+  for(let r=Math.max(0,rowIndex-2);r<Math.min(cells.length,rowIndex+3);r++){
+    const row=cells[r]||[];
+    for(let c=Math.max(0,colIndex-3);c<Math.min(row.length,colIndex+6);c++){
+      const d=normalizeExcelDate(row[c]);
+      if(d)return d;
+    }
+  }
+  return '';
+}
+function upsertExcelRoom(store,room,date){
+  if(!isValidRoomNumber(room))return false;
+  let r=store.rooms.find(x=>String(x.room)===String(room));
+  if(!r){r={room,latestDate:'',manufacturer:'',worker:'',memo:'',history:[]};store.rooms.push(r);} 
+  if(date){
+    r.history=Array.isArray(r.history)?r.history:[];
+    if(!r.history.some(h=>h.date===date))r.history.push({date,manufacturer:r.manufacturer||'',worker:r.worker||'',memo:'Excel再取込'});
+    if(!r.latestDate || String(date)>String(r.latestDate))r.latestDate=date;
+  }
+  return true;
+}
+async function importExcelWorkbook(file){
+  if(!window.XLSX)return alert('Excel読込ライブラリを読み込めませんでした。ネット接続を確認してください。');
+  const buf=await file.arrayBuffer();
+  const wb=XLSX.read(buf,{type:'array',cellDates:true});
+  let storeCount=0,roomCount=0,historyCount=0;
+  wb.SheetNames.forEach((name,idx)=>{
+    const ws=wb.Sheets[name];
+    const cells=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
+    if(!cells.length)return;
+    const store=findOrCreateStoreByExcelSheet(name,idx);
+    storeCount++;
+    const beforeRooms=new Set((store.rooms||[]).map(r=>String(r.room)));
+    let beforeHist=0;(store.rooms||[]).forEach(r=>beforeHist+=(r.history||[]).length);
+    cells.forEach((row,r)=>{
+      (row||[]).forEach((cell,c)=>{
+        const room=normalizeExcelText(cell);
+        if(!isValidRoomNumber(room))return;
+        const date=findRoomDateNear(cells,r,c);
+        upsertExcelRoom(store,room,date);
+      });
+    });
+    store.rooms=store.rooms.filter(r=>isValidRoomNumber(r.room));
+    store.rooms.sort((a,b)=>String(a.room).localeCompare(String(b.room),'ja',{numeric:true}));
+    roomCount += store.rooms.filter(r=>!beforeRooms.has(String(r.room))).length;
+    let afterHist=0;(store.rooms||[]).forEach(r=>afterHist+=(r.history||[]).length);
+    historyCount += Math.max(0,afterHist-beforeHist);
+  });
+  db.stores.sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''),'ja',{numeric:true}));
+  save();
+  await saveStoresToFirestore();
+  refreshCurrentUser();
+  render();
+  alert(`Excel取込が完了しました。\n店舗：${storeCount}件\n新規部屋：${roomCount}件\n新規洗浄履歴：${historyCount}件`);
+}
+async function handleExcelImport(e){
+  const file=e.target.files&&e.target.files[0];
+  if(!file)return;
+  try{await importExcelWorkbook(file);}catch(err){console.error(err);alert('Excel取込に失敗しました。ファイル形式を確認してください。');}
+}
 
 function renderIncidentPdfButtons(isExisting){
   const panel = $('incidentProgressPanel');
@@ -649,18 +753,7 @@ function escPdf(v){
 function escPdfAttr(v){
   return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
-window.addEventListener('load',()=>{
-  const savedLogin=localStorage.getItem('currentUserLogin');
-  if(!savedLogin)return;
-  let u=(db.users||[]).find(x=>x.login===savedLogin);
-  if(!u)return;
-  currentUser=u;
-  currentStoreId=visibleStores()[0]?.id||null;
-  $('loginView').classList.add('hidden');
-  $('appView').classList.remove('hidden');
-  render();
-  syncAllFromFirestore(false).then(()=>{refreshCurrentUser(); startAllRealtime(); render();}).catch(e=>console.warn('auto sync skipped',e));
-});
+
 window.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.modal.show').forEach(m=>m.classList.remove('show'))});
 
 </script>
