@@ -52,6 +52,7 @@ const INITIAL={"stores":[{"id":"h001","code":"H001","name":"ONE STYLE（辻）",
 const LS='hotel-maintenance-aircon-v6';
 let db=JSON.parse(localStorage.getItem(LS)||'null')||INITIAL;
 let currentUser=null,currentStoreId=null,currentTab='aircon',editingStoreId=null,editingUserId=null,currentIncidentStatuses=new Set(['progress','open']);
+let selectedArchiveIds=new Set();
 const $=id=>document.getElementById(id);
 function save(){localStorage.setItem(LS,JSON.stringify(db));}
 async function saveToFirebase(){
@@ -108,14 +109,7 @@ async function login(){
   }).catch(e=>console.warn('Firestore sync skipped',e));
 }
 function logout(){localStorage.removeItem("currentUserLogin");currentUser=null; localStorage.removeItem('lastUser'); $('appView').classList.add('hidden'); $('loginView').classList.remove('hidden');}
-function render(){if(!currentUser)return; let tabs=allowedTabs(); if(!tabs.some(t=>t[0]===currentTab)) currentTab=tabs[0][0]; $('nav').innerHTML=tabs.map(t=>`<button class="${currentTab===t[0]?'active':''}" onclick="setTab('${t[0]}')"><b>${t[1]}</b>${t[2]}</button>`).join(''); $('pageTitle').textContent=tabs.find(t=>t[0]===currentTab)?.[2]||''; let stores=visibleStores(); let hideStoreBar=currentTab==='stores'||currentTab==='users'; $('storeSelect').parentElement.classList.toggle('hidden',hideStoreBar); if(currentTab==='incidents'||currentTab==='archive'){if(!currentStoreId||(!stores.some(s=>s.id===currentStoreId)&&currentStoreId!=='all'))currentStoreId='all'; $('storeSelect').innerHTML='<option value="all">全店舗</option>'+stores.map(s=>`<option value="${s.id}">${s.code ? s.code + ' / ' : ''}${s.name}</option>`).join(''); $('brand').textContent=currentStoreId==='all'?'全店舗':(storeById(currentStoreId)?.name||'HOTEL').slice(0,5);} else {if(!stores.some(s=>s.id===currentStoreId))currentStoreId=stores[0]?.id||null; $('storeSelect').innerHTML=stores.map(s=>`<option value="${s.id}">${s.code ? s.code + ' / ' : ''}${s.name}</option>`).join(''); $('brand').textContent=(storeById(currentStoreId)?.name||'HOTEL').slice(0,5);} $('storeSelect').value=currentStoreId||''; ['dashboard','incidents','archive','aircon','stores','users','reports'].forEach(v=>$(v+'View')?.classList.add('hidden')); $(currentTab+'View')?.classList.remove('hidden'); updateIncidentTabs(); renderRoomsData(); renderActions(); if(currentTab==='aircon')renderAircon(); if(currentTab==='dashboard')renderDashboard(); if(currentTab==='stores')renderStores(); if(currentTab==='users')renderUsers(); if(currentTab==='reports')renderReports(); if(currentTab==='incidents')renderIncidents(); if(currentTab==='archive')renderArchive();}
-let stores=visibleStores();
-
-stores = stores.slice().sort((a,b)=>
-
-  String(a.code||a.no||a.id).localeCompare(String(b.code||b.no||b.id),'ja',{numeric:true})
-
-);
+function render(){if(!currentUser)return; let tabs=allowedTabs(); if(!tabs.some(t=>t[0]===currentTab)) currentTab=tabs[0][0]; $('nav').innerHTML=tabs.map(t=>`<button class="${currentTab===t[0]?'active':''}" onclick="setTab('${t[0]}')"><b>${t[1]}</b>${t[2]}</button>`).join(''); $('pageTitle').textContent=tabs.find(t=>t[0]===currentTab)?.[2]||''; let stores=visibleStores(); let hideStoreBar=currentTab==='stores'||currentTab==='users'; $('storeSelect').parentElement.classList.toggle('hidden',hideStoreBar); if(currentTab==='incidents'||currentTab==='archive'){if(!currentStoreId||(!stores.some(s=>s.id===currentStoreId)&&currentStoreId!=='all'))currentStoreId='all'; $('storeSelect').innerHTML='<option value="all">全店舗</option>'+stores.map(s=>`<option value="${s.id}">${safeText(storeOptionLabel(s))}</option>`).join(''); $('brand').textContent=currentStoreId==='all'?'全店舗':(storeById(currentStoreId)?.name||'HOTEL').slice(0,5);} else {if(!stores.some(s=>s.id===currentStoreId))currentStoreId=stores[0]?.id||null; $('storeSelect').innerHTML=stores.map(s=>`<option value="${s.id}">${safeText(storeOptionLabel(s))}</option>`).join(''); $('brand').textContent=(storeById(currentStoreId)?.name||'HOTEL').slice(0,5);} $('storeSelect').value=currentStoreId||''; ['dashboard','incidents','archive','aircon','stores','users','reports'].forEach(v=>$(v+'View')?.classList.add('hidden')); $(currentTab+'View')?.classList.remove('hidden'); updateIncidentTabs(); renderRoomsData(); renderActions(); if(currentTab==='aircon')renderAircon(); if(currentTab==='dashboard')renderDashboard(); if(currentTab==='stores')renderStores(); if(currentTab==='users')renderUsers(); if(currentTab==='reports')renderReports(); if(currentTab==='incidents')renderIncidents(); if(currentTab==='archive')renderArchive();}
 function renderActions(){let html=''; if(currentTab==='aircon')html='<button class="iconbtn" type="button" onclick="printAirconPdf()">PDF印刷</button>'; if(currentTab==='incidents')html='<button class="iconbtn" type="button" onclick="printIncidentListPdf()">PDF印刷</button>'; if(currentTab==='archive')html='<button class="iconbtn" type="button" onclick="printSelectedArchivePdf()">チェック分PDF印刷</button><button class="iconbtn" type="button" onclick="printArchivePdf()">一覧PDF印刷</button>'; if(currentUser&&currentUser.role==='admin'&&(currentTab==='aircon'||currentTab==='stores'))html+='<button class="iconbtn" type="button" onclick="openExcelImport()">Excel取込</button>'; $('pageActions').innerHTML=html;}
 function renderRoomsData(){let s=storeById(currentStoreId); $('roomsData').innerHTML=(s?.rooms||[]).filter(r=>isValidRoomNumber(r.room)).map(r=>`<option value="${r.room}"></option>`).join('');}
 function roomFloor(room){let m=String(room||'').match(/^(\d+)/); if(!m)return 'その他'; let n=m[1]; return n.length>=3 ? String(parseInt(n.slice(0,-2),10))+'階' : 'その他';}
@@ -147,39 +141,70 @@ if(from)list=list.filter(i=>String(i.date||'')>=from);
 if(to)list=list.filter(i=>String(i.date||'')<=to);
 list.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
 if($('incidentResultCount')) $('incidentResultCount').textContent='検索結果：'+list.length+'件';
-$('incidentTable').innerHTML='<tr><th>店舗</th><th>部屋</th><th>内容</th><th>状態</th><th>担当</th><th>金額</th><th>発生日</th><th>完了日</th></tr>'+ (list.length?list.map(i=>`<tr class="clickable" onclick="openIncidentModal('${String(i.id).replace(/'/g,"\\'")}')"><td>${safeText(storeById(i.storeId)?.name||'-')}</td><td>${safeText(i.room||'-')}</td><td><b>${safeText(i.title||'-')}</b><br><span class="small">${safeText(i.memo||'')}</span><br><span class="small">履歴 ${((i.progress||[]).length)}件 / 添付 ${((i.media||[]).length)}件</span></td><td>${safeText(incidentStatusLabel(i.status))}</td><td>${safeText(i.person||'-')}</td><td class="money">${formatYen(i.amount)}</td><td>${safeText(i.date||'-')}</td><td>${safeText(i.completeDate||'-')}</td></tr>`).join(''):`<tr><td colspan="8" class="small">表示するインシデントがありません。</td></tr>`);}
+$('incidentTable').innerHTML='<tr><th>店舗</th><th>部屋</th><th>内容</th><th>状態</th><th>担当</th><th>金額</th><th>発生日</th><th>完了日</th></tr>'+ (list.length?list.map(i=>`<tr class="clickable" onclick="openIncidentModal('${String(i.id).replace(/'/g,"\\'")}')"><td>${safeText(storeById(i.storeId)?.name||'-')}</td><td>${safeText(i.room||'-')}</td><td><b>${safeText(i.title||'-')}</b><br><span class="small">${safeText(i.memo||'')}</span><br><span class="small">履歴 ${((i.progress||[]).length)}件 / 添付 ${((i.media||[]).length)}件</span></td><td>${safeText(incidentStatusLabel(archiveStatusValue(i)))}</td><td>${safeText(i.person||'-')}</td><td class="money">${formatYen(i.amount)}</td><td>${safeText(i.date||'-')}</td><td>${safeText(archiveCompleteDate(i)||'-')}</td></tr>`).join(''):`<tr><td colspan="8" class="small">表示するインシデントがありません。</td></tr>`);}
 
+function archiveAllIncidents(){
+  // アーカイブは「過去検索」扱い。未対応・対応中・対応完了すべてを対象にする。
+  // 旧版で db.archive / db.archives に保存されたデータがあっても拾えるように結合する。
+  const map=new Map();
+  [...(db.incidents||[]),...(db.archive||[]),...(db.archives||[])].forEach(i=>{
+    if(!i)return;
+    normalizeIncident(i);
+    map.set(String(i.id),i);
+  });
+  return [...map.values()];
+}
+function isArchiveIncident(i){
+  // 互換用：対応完了かどうかだけを判定する関数。アーカイブ表示対象の判定には使わない。
+  if(!i)return false;
+  let progress=Array.isArray(i.progress)?i.progress:[];
+  return i.status==='done' || !!i.completeDate || progress.some(p=>p&&p.status==='done');
+}
+function archiveStatusValue(i){
+  return isArchiveIncident(i)?'done':(i?.status||'open');
+}
+function archiveCompleteDate(i){
+  let progress=Array.isArray(i?.progress)?i.progress:[];
+  let done=[...progress].reverse().find(p=>p&&p.status==='done');
+  return i?.completeDate || done?.date || '';
+}
 function getArchiveFilteredList(){
-let all=currentStoreId==='all';
-let allowedIds=visibleStores().map(s=>s.id);
-let roomQ=($('archiveRoomSearch')?.value||'').trim().toLowerCase();
-let contentQ=($('archiveContentSearch')?.value||'').trim().toLowerCase();
-let personQ=($('archivePersonSearch')?.value||'').trim().toLowerCase();
-let from=($('archiveDateFrom')?.value||'');
-let to=($('archiveDateTo')?.value||'');
-let st=($('archiveStatusSearch')?.value||'all');
-let list=(db.incidents||[]).filter(i=>allowedIds.includes(i.storeId));
-if(!all)list=list.filter(i=>i.storeId===currentStoreId);
-if(st!=='all')list=list.filter(i=>i.status===st);
-if(roomQ)list=list.filter(i=>String(i.room||'').toLowerCase().includes(roomQ));
-if(contentQ)list=list.filter(i=>[i.title,i.memo,...((i.progress||[]).map(p=>p.text||''))].join(' ').toLowerCase().includes(contentQ));
-if(personQ)list=list.filter(i=>[i.person,...((i.progress||[]).map(p=>p.person||''))].join(' ').toLowerCase().includes(personQ));
-if(from)list=list.filter(i=>String(i.date||'')>=from);
-if(to)list=list.filter(i=>String(i.date||'')<=to);
-list.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
-return list;
+  let all=currentStoreId==='all';
+  let allowedIds=visibleStores().map(s=>s.id);
+  let roomQ=($('archiveRoomSearch')?.value||'').trim().toLowerCase();
+  let contentQ=($('archiveContentSearch')?.value||'').trim().toLowerCase();
+  let personQ=($('archivePersonSearch')?.value||'').trim().toLowerCase();
+  let from=($('archiveDateFrom')?.value||'');
+  let to=($('archiveDateTo')?.value||'');
+  let st=($('archiveStatusSearch')?.value||'all');
+  let list=archiveAllIncidents().filter(i=>allowedIds.includes(i.storeId));
+  if(!all)list=list.filter(i=>i.storeId===currentStoreId);
+
+  // ステータス絞り込み：すべて / 未対応 / 対応中 / 対応完了
+  if(st!=='all'){
+    if(st==='done')list=list.filter(i=>archiveStatusValue(i)==='done');
+    else list=list.filter(i=>(i.status||'open')===st && archiveStatusValue(i)!=='done');
+  }
+
+  if(roomQ)list=list.filter(i=>String(i.room||'').toLowerCase().includes(roomQ));
+  if(contentQ)list=list.filter(i=>[i.title,i.memo,...((i.progress||[]).map(p=>p.text||''))].join(' ').toLowerCase().includes(contentQ));
+  if(personQ)list=list.filter(i=>[i.person,...((i.progress||[]).map(p=>p.person||''))].join(' ').toLowerCase().includes(personQ));
+  if(from)list=list.filter(i=>String(i.date||'')>=from || String(archiveCompleteDate(i)||'')>=from);
+  if(to)list=list.filter(i=>String(i.date||'')<=to || String(archiveCompleteDate(i)||'')<=to);
+  list.sort((a,b)=>String(archiveCompleteDate(b)||b.date||'').localeCompare(String(archiveCompleteDate(a)||a.date||'')));
+  return list;
 }
 function archiveRowCheckbox(id){return `<input type="checkbox" class="archiveCheck" onclick="event.stopPropagation();toggleArchiveCheck('${String(id).replace(/'/g,"\\'")}',this.checked)" ${selectedArchiveIds.has(String(id))?'checked':''}>`;}
 function toggleArchiveCheck(id,checked){id=String(id); if(checked)selectedArchiveIds.add(id); else selectedArchiveIds.delete(id); updateArchiveCheckCount();}
 function toggleAllArchiveChecks(checked){getArchiveFilteredList().forEach(i=>{let id=String(i.id); if(checked)selectedArchiveIds.add(id); else selectedArchiveIds.delete(id);}); renderArchive();}
-function updateArchiveCheckCount(){let el=$('archiveResultCount'); if(!el)return; let count=(db.incidents||[]).filter(i=>selectedArchiveIds.has(String(i.id))).length; let base=el.dataset.base||el.textContent||''; el.textContent=base+(count?` / チェック：${count}件`:'');}
+function updateArchiveCheckCount(){let el=$('archiveResultCount'); if(!el)return; let valid=new Set(archiveAllIncidents().map(i=>String(i.id))); selectedArchiveIds=new Set([...selectedArchiveIds].filter(id=>valid.has(id))); let count=[...selectedArchiveIds].length; let base=el.dataset.base||el.textContent||''; el.textContent=base+(count?` / チェック：${count}件`:'');}
 function renderArchive(){
-let list=getArchiveFilteredList();
-let visibleIds=new Set(list.map(i=>String(i.id)));
-selectedArchiveIds=new Set([...selectedArchiveIds].filter(id=>(db.incidents||[]).some(i=>String(i.id)===id)));
-let checkedVisible=list.length>0 && list.every(i=>selectedArchiveIds.has(String(i.id)));
-if($('archiveResultCount')){$('archiveResultCount').dataset.base='検索結果：'+list.length+'件'; updateArchiveCheckCount();}
-$('archiveTable').innerHTML='<tr><th style="width:46px"><input type="checkbox" onclick="toggleAllArchiveChecks(this.checked)" '+(checkedVisible?'checked':'')+'></th><th>店舗</th><th>部屋</th><th>内容</th><th>対応状況</th><th>担当</th><th>金額</th><th>発生日</th><th>完了日</th></tr>'+ (list.length?list.map(i=>`<tr class="clickable" onclick="openIncidentModal('${String(i.id).replace(/'/g,"\\'")}')"><td>${archiveRowCheckbox(i.id)}</td><td>${safeText(storeById(i.storeId)?.name||'-')}</td><td>${safeText(i.room||'-')}</td><td><b>${safeText(i.title||'-')}</b><br><span class="small">${safeText(i.memo||'')}</span><br><span class="small">履歴 ${((i.progress||[]).length)}件 / 添付 ${((i.media||[]).length)}件</span></td><td>${safeText(incidentStatusLabel(i.status))}</td><td>${safeText(i.person||'-')}</td><td class="money">${formatYen(i.amount)}</td><td>${safeText(i.date||'-')}</td><td>${safeText(i.completeDate||'-')}</td></tr>`).join(''):`<tr><td colspan="9" class="small">表示するインシデントがありません。</td></tr>`);
+  let list=getArchiveFilteredList();
+  let valid=new Set(archiveAllIncidents().map(i=>String(i.id)));
+  selectedArchiveIds=new Set([...selectedArchiveIds].filter(id=>valid.has(id)));
+  let checkedVisible=list.length>0 && list.every(i=>selectedArchiveIds.has(String(i.id)));
+  if($('archiveResultCount')){$('archiveResultCount').dataset.base='検索結果：'+list.length+'件'; updateArchiveCheckCount();}
+  $('archiveTable').innerHTML='<tr><th style="width:46px"><input type="checkbox" onclick="toggleAllArchiveChecks(this.checked)" '+(checkedVisible?'checked':'')+'></th><th>店舗</th><th>部屋</th><th>内容</th><th>対応状況</th><th>担当</th><th>金額</th><th>発生日</th><th>完了日</th></tr>'+ (list.length?list.map(i=>`<tr class="clickable" onclick="openIncidentModal('${String(i.id).replace(/'/g,"\\'")}')"><td>${archiveRowCheckbox(i.id)}</td><td>${safeText(storeById(i.storeId)?.name||'-')}</td><td>${safeText(i.room||'-')}</td><td><b>${safeText(i.title||'-')}</b><br><span class="small">${safeText(i.memo||'')}</span><br><span class="small">履歴 ${((i.progress||[]).length)}件 / 添付 ${((i.media||[]).length)}件</span></td><td>${safeText(incidentStatusLabel(archiveStatusValue(i)))}</td><td>${safeText(i.person||'-')}</td><td class="money">${formatYen(i.amount)}</td><td>${safeText(i.date||'-')}</td><td>${safeText(archiveCompleteDate(i)||'-')}</td></tr>`).join(''):`<tr><td colspan="9" class="small">表示するインシデントがありません。</td></tr>`);
 }
 function renderStores(){let rows=sortStores(db.stores).map(s=>`<tr><td>${safeText(s.code)}</td><td>${safeText(s.name)}</td><td>${s.rooms.filter(r=>isValidRoomNumber(r.room)).length}室</td><td>${safeText(s.address||'')}</td><td>${s.phone ? `<a href="tel:${String(s.phone).replace(/[^0-9+]/g,'')}" class="phoneLink">${safeText(s.phone)}</a>` : ''}</td><td><button class="iconbtn" onclick="openStoreModal('${s.id}')">編集</button></td></tr>`).join(''); $('storesTable').innerHTML='<tr><th>コード</th><th>ホテル名</th><th>部屋数</th><th>住所</th><th>電話番号</th><th></th></tr>'+rows;}
 function openStoreModal(id){editingStoreId=id||null; let s=id?storeById(id):{name:'',code:'',address:'',phone:'',rooms:[]}; $('editStoreName').value=s.name||''; $('editStoreCode').value=s.code||''; $('editStoreAddress').value=s.address||''; $('editStorePhone').value=s.phone||''; let validRooms=(s.rooms||[]).filter(r=>isValidRoomNumber(r.room)); $('editRoomCount').value=validRooms.length||''; $('bulkRooms').value=validRooms.map(r=>r.room).join('\n'); buildRoomFields(validRooms.map(r=>r.room)); $('deleteStoreBtn')?.classList.toggle('hidden',!id); $('storeModal').classList.add('show');}
@@ -357,7 +382,21 @@ async function saveIncident(){
     let i=db.incidents.find(x=>String(x.id)===String(editingIncidentId));
     if(i){
       normalizeIncident(i);
+      i.storeId=data.storeId;
+      i.room=data.room;
+      i.title=data.title;
+      i.status=data.status;
+      i.person=data.person;
+      i.date=data.date;
       i.memo=data.memo;
+      if(data.status==='done' && !i.completeDate){
+        let lastDone=[...(i.progress||[])].reverse().find(p=>p&&p.status==='done');
+        i.completeDate=lastDone?.date || new Date().toISOString().slice(0,10);
+      }
+      if(data.status!=='done' && !(i.progress||[]).some(p=>p&&p.status==='done')){
+        i.completeDate='';
+        i.amount='';
+      }
       if(newMedia.length){
         i.media.push(...newMedia);
       }
@@ -366,7 +405,7 @@ async function saveIncident(){
     let obj=Object.assign({
       id:'i'+Date.now(),
       amount:'',
-      completeDate:'',
+      completeDate:data.status==='done'?new Date().toISOString().slice(0,10):'',
       media:newMedia,
       progress:[]
     },data);
@@ -586,10 +625,32 @@ function printAirconPdf(){
     `
   );
 }
+function currentIncidentListForPrint(includeArchive){
+  // PDF出力用。画面の検索条件・店舗選択を反映する。
+  if(includeArchive)return getArchiveFilteredList();
+  let all=currentStoreId==='all';
+  let allowedIds=visibleStores().map(s=>s.id);
+  let roomQ=($('incidentRoomSearch')?.value||'').trim().toLowerCase();
+  let contentQ=($('incidentContentSearch')?.value||'').trim().toLowerCase();
+  let personQ=($('incidentPersonSearch')?.value||'').trim().toLowerCase();
+  let from=($('incidentDateFrom')?.value||'');
+  let to=($('incidentDateTo')?.value||'');
+  let list=(db.incidents||[]).filter(i=>allowedIds.includes(i.storeId));
+  if(all)list=list.filter(i=>i.status==='progress'||i.status==='open');
+  else list=list.filter(i=>i.storeId===currentStoreId && (i.status==='progress'||i.status==='open'));
+  list=list.filter(i=>currentIncidentStatuses.has(i.status));
+  if(roomQ)list=list.filter(i=>String(i.room||'').toLowerCase().includes(roomQ));
+  if(contentQ)list=list.filter(i=>[i.title,i.memo,...((i.progress||[]).map(p=>p.text||''))].join(' ').toLowerCase().includes(contentQ));
+  if(personQ)list=list.filter(i=>[i.person,...((i.progress||[]).map(p=>p.person||''))].join(' ').toLowerCase().includes(personQ));
+  if(from)list=list.filter(i=>String(i.date||'')>=from);
+  if(to)list=list.filter(i=>String(i.date||'')<=to);
+  list.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+  return list;
+}
 function printIncidentListPdf(){let list=currentIncidentListForPrint(false); let rows=list.map(i=>`<tr><td>${safeText(storeById(i.storeId)?.name||'-')}</td><td>${safeText(i.room||'-')}</td><td>${safeText(i.title||'-')}</td><td>${safeText(incidentStatusLabel(i.status))}</td><td>${safeText(i.person||'-')}</td><td>${safeText(i.date||'-')}</td></tr>`).join(''); openPrintWindow('インシデント一覧',`<div class="header"><h1>インシデント一覧</h1><div class="meta">印刷日：${new Date().toLocaleDateString('ja-JP')}</div></div><table class="printTable"><tr><th>店舗</th><th>部屋</th><th>内容</th><th>状況</th><th>担当</th><th>発生日</th></tr>${rows}</table>`);}
-function printArchivePdf(){let list=currentIncidentListForPrint(true); let rows=list.map(i=>`<tr><td>${safeText(storeById(i.storeId)?.name||'-')}</td><td>${safeText(i.room||'-')}</td><td>${safeText(i.title||'-')}</td><td>${safeText(incidentStatusLabel(i.status))}</td><td>${safeText(i.person||'-')}</td><td>${formatYen(i.amount)}</td><td>${safeText(i.date||'-')}</td><td>${safeText(i.completeDate||'-')}</td></tr>`).join(''); openPrintWindow('アーカイブ一覧',`<div class="header"><h1>アーカイブ一覧</h1><div class="meta">印刷日：${new Date().toLocaleDateString('ja-JP')}</div></div><table class="printTable"><tr><th>店舗</th><th>部屋</th><th>内容</th><th>状況</th><th>担当</th><th>金額</th><th>発生日</th><th>完了日</th></tr>${rows}</table>`);}
-function archivePdfCard(i){let store=storeById(i.storeId);let progress=Array.isArray(i.progress)?i.progress:[];let last=progress.length?progress[progress.length-1]:null;let done=[...progress].reverse().find(p=>p.status==='done')||last;let complete=done?.date||i.completeDate||'-';let amount=Number(i.amount||done?.amount||last?.amount||0)||0;let memo=[i.title,i.memo].filter(Boolean).join('\n');return `<section class="archiveCard"><div class="cardHead"><b>${safeText(store?.name||'-')}</b><span>${safeText(incidentStatusLabel(i.status))}</span></div><table><tr><th>部屋</th><td>${safeText(i.room||'-')}</td><th>発生日</th><td>${safeText(i.date||'-')}</td></tr><tr><th>完了日</th><td>${safeText(complete)}</td><th>金額</th><td>${formatYen(amount)}</td></tr></table><div class="cardTitle">${safeText(memo||'-')}</div></section>`;}
-function printSelectedArchivePdf(){let list=(db.incidents||[]).filter(i=>selectedArchiveIds.has(String(i.id))).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))); if(!list.length){alert('PDF印刷するインシデントにチェックを入れてください');return;} let pages=[]; for(let i=0;i<list.length;i+=4){pages.push(`<div class="archivePage">${list.slice(i,i+4).map(archivePdfCard).join('')}</div>`);} openPrintWindow('アーカイブ選択PDF',`<div class="header"><h1>アーカイブ選択PDF</h1><div class="meta">印刷日：${new Date().toLocaleDateString('ja-JP')}　件数：${list.length}件</div></div>${pages.join('')}`,`
+function printArchivePdf(){let list=currentIncidentListForPrint(true); let rows=list.map(i=>`<tr><td>${safeText(storeById(i.storeId)?.name||'-')}</td><td>${safeText(i.room||'-')}</td><td>${safeText(i.title||'-')}</td><td>${safeText(incidentStatusLabel(archiveStatusValue(i)))}</td><td>${safeText(i.person||'-')}</td><td>${formatYen(i.amount)}</td><td>${safeText(i.date||'-')}</td><td>${safeText(archiveCompleteDate(i)||'-')}</td></tr>`).join(''); openPrintWindow('アーカイブ一覧',`<div class="header"><h1>アーカイブ一覧</h1><div class="meta">印刷日：${new Date().toLocaleDateString('ja-JP')}</div></div><table class="printTable"><tr><th>店舗</th><th>部屋</th><th>内容</th><th>状況</th><th>担当</th><th>金額</th><th>発生日</th><th>完了日</th></tr>${rows}</table>`);}
+function archivePdfCard(i){let store=storeById(i.storeId);let progress=Array.isArray(i.progress)?i.progress:[];let last=progress.length?progress[progress.length-1]:null;let done=[...progress].reverse().find(p=>p.status==='done')||last;let complete=done?.date||i.completeDate||'-';let amount=Number(i.amount||done?.amount||last?.amount||0)||0;let memo=[i.title,i.memo].filter(Boolean).join('\n');return `<section class="archiveCard"><div class="cardHead"><b>${safeText(store?.name||'-')}</b><span>${safeText(incidentStatusLabel(archiveStatusValue(i)))}</span></div><table><tr><th>部屋</th><td>${safeText(i.room||'-')}</td><th>発生日</th><td>${safeText(i.date||'-')}</td></tr><tr><th>完了日</th><td>${safeText(complete)}</td><th>金額</th><td>${formatYen(amount)}</td></tr></table><div class="cardTitle">${safeText(memo||'-')}</div></section>`;}
+function printSelectedArchivePdf(){let list=archiveAllIncidents().filter(i=>selectedArchiveIds.has(String(i.id))).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))); if(!list.length){alert('PDF印刷するインシデントにチェックを入れてください');return;} let pages=[]; for(let i=0;i<list.length;i+=4){pages.push(`<div class="archivePage">${list.slice(i,i+4).map(archivePdfCard).join('')}</div>`);} openPrintWindow('アーカイブ選択PDF',`<div class="header"><h1>アーカイブ選択PDF</h1><div class="meta">印刷日：${new Date().toLocaleDateString('ja-JP')}　件数：${list.length}件</div></div>${pages.join('')}`,`
 @page{size:A4 portrait;margin:8mm}
 body{padding:0!important;background:#fff}
 .header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #111;padding-bottom:5px;margin-bottom:8px}
