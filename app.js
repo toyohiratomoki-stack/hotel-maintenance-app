@@ -650,12 +650,62 @@ function currentIncidentListForPrint(includeArchive){
 function printIncidentListPdf(){let list=currentIncidentListForPrint(false); let rows=list.map(i=>`<tr><td>${safeText(storeById(i.storeId)?.name||'-')}</td><td>${safeText(i.room||'-')}</td><td>${safeText(i.title||'-')}</td><td>${safeText(incidentStatusLabel(i.status))}</td><td>${safeText(i.person||'-')}</td><td>${safeText(i.date||'-')}</td></tr>`).join(''); openPrintWindow('インシデント一覧',`<div class="header"><h1>インシデント一覧</h1><div class="meta">印刷日：${new Date().toLocaleDateString('ja-JP')}</div></div><table class="printTable"><tr><th>店舗</th><th>部屋</th><th>内容</th><th>状況</th><th>担当</th><th>発生日</th></tr>${rows}</table>`);}
 function printArchivePdf(){let list=currentIncidentListForPrint(true); let rows=list.map(i=>`<tr><td>${safeText(storeById(i.storeId)?.name||'-')}</td><td>${safeText(i.room||'-')}</td><td>${safeText(i.title||'-')}</td><td>${safeText(incidentStatusLabel(archiveStatusValue(i)))}</td><td>${safeText(i.person||'-')}</td><td>${formatYen(i.amount)}</td><td>${safeText(i.date||'-')}</td><td>${safeText(archiveCompleteDate(i)||'-')}</td></tr>`).join(''); openPrintWindow('アーカイブ一覧',`<div class="header"><h1>アーカイブ一覧</h1><div class="meta">印刷日：${new Date().toLocaleDateString('ja-JP')}</div></div><table class="printTable"><tr><th>店舗</th><th>部屋</th><th>内容</th><th>状況</th><th>担当</th><th>金額</th><th>発生日</th><th>完了日</th></tr>${rows}</table>`);}
 function archivePdfCard(i){let store=storeById(i.storeId);let progress=Array.isArray(i.progress)?i.progress:[];let last=progress.length?progress[progress.length-1]:null;let done=[...progress].reverse().find(p=>p.status==='done')||last;let complete=done?.date||i.completeDate||'-';let amount=Number(i.amount||done?.amount||last?.amount||0)||0;let memo=[i.title,i.memo].filter(Boolean).join('\n');return `<section class="archiveCard"><div class="cardHead"><b>${safeText(store?.name||'-')}</b><span>${safeText(incidentStatusLabel(archiveStatusValue(i)))}</span></div><table><tr><th>部屋</th><td>${safeText(i.room||'-')}</td><th>発生日</th><td>${safeText(i.date||'-')}</td></tr><tr><th>完了日</th><td>${safeText(complete)}</td><th>金額</th><td>${formatYen(amount)}</td></tr></table><div class="cardTitle">${safeText(memo||'-')}</div></section>`;}
-function printSelectedArchivePdf(){let list=archiveAllIncidents().filter(i=>selectedArchiveIds.has(String(i.id))).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))); if(!list.length){alert('PDF印刷するインシデントにチェックを入れてください');return;} let pages=[]; for(let i=0;i<list.length;i+=4){pages.push(`<div class="archivePage">${list.slice(i,i+4).map(archivePdfCard).join('')}</div>`);} openPrintWindow('アーカイブ選択PDF',`<div class="header"><h1>アーカイブ選択PDF</h1><div class="meta">印刷日：${new Date().toLocaleDateString('ja-JP')}　件数：${list.length}件</div></div>${pages.join('')}`,`
-@page{size:A4 portrait;margin:8mm}
-body{padding:0!important;background:#fff}
-.header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #111;padding-bottom:5px;margin-bottom:8px}
-h1{font-size:18px;margin:0}.meta{font-size:10px}.archivePage{height:270mm;display:grid;grid-template-rows:repeat(4,1fr);gap:5mm;page-break-after:always}.archivePage:last-child{page-break-after:auto}.archiveCard{border:1px solid #999;border-radius:8px;padding:7px;break-inside:avoid;overflow:hidden}.cardHead{display:flex;justify-content:space-between;gap:8px;background:#f3f0f7;border-radius:6px;padding:5px 7px;margin-bottom:6px;font-size:12px}.archiveCard table{width:100%;border-collapse:collapse;font-size:10.5px;table-layout:fixed}.archiveCard th,.archiveCard td{border:1px solid #bbb;padding:4px;text-align:left}.archiveCard th{width:17mm;background:#fafafa}.cardTitle{white-space:pre-wrap;font-size:11px;line-height:1.35;margin-top:6px;max-height:19mm;overflow:hidden}`);}
-
+function archiveDetailPdfPage(inc, idx){
+  normalizeIncident(inc);
+  const store = storeById(inc.storeId);
+  const progress = Array.isArray(inc.progress) ? inc.progress : [];
+  const lastProgress = progress.length ? progress[progress.length - 1] : null;
+  const doneProgress = [...progress].reverse().find(p=>p.status==='done') || lastProgress;
+  const completedDate = doneProgress?.date || inc.completeDate || '-';
+  const repairAmount = Number(inc.amount || doneProgress?.amount || lastProgress?.amount || 0) || 0;
+  const startPhoto = firstIncidentImage(inc.media || []) || legacyIncidentImage(inc);
+  const finalPhoto = latestIncidentProgressImage(progress);
+  return `
+<section class="incidentPdfPage">
+<h1>インシデント報告書</h1>
+<table class="infoTable">
+<tr><th>ホテル名</th><td>${escPdf(store?.name||'-')}</td></tr>
+<tr><th>部屋番号</th><td>${escPdf(inc.room||'-')}</td></tr>
+<tr><th>発生日</th><td>${escPdf(inc.date||'-')}</td></tr>
+<tr><th>完了日</th><td>${escPdf(completedDate)}</td></tr>
+<tr><th>ステータス</th><td>${escPdf(incidentStatusLabel(archiveStatusValue(inc)))}</td></tr>
+<tr><th>修理金額</th><td>${escPdf(formatYen(repairAmount))}</td></tr>
+<tr><th>インシデント内容</th><td class="contentCell">${escPdf(inc.title||inc.memo||'-')}${inc.title&&inc.memo?'\n'+escPdf(inc.memo):''}</td></tr>
+</table>
+<div class="photoGrid">
+  <div class="photoBox"><div class="photoTitle">登録時写真</div>${startPhoto ? `<img src="${escPdfAttr(startPhoto)}">` : `<div class="noPhoto">画像なし</div>`}</div>
+  <div class="photoBox"><div class="photoTitle">最終履歴写真</div>${finalPhoto ? `<img src="${escPdfAttr(finalPhoto)}">` : `<div class="noPhoto">画像なし</div>`}</div>
+</div>
+</section>`;
+}
+function printSelectedArchivePdf(){
+  let list=archiveAllIncidents().filter(i=>selectedArchiveIds.has(String(i.id))).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+  if(!list.length){alert('PDF印刷するインシデントにチェックを入れてください');return;}
+  const body=`<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>アーカイブ選択PDF</title><style>
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#222;margin:0;background:#fff;line-height:1.32}
+.incidentPdfPage{min-height:277mm;padding:10mm;page-break-after:always;background:#fff}
+.incidentPdfPage:last-child{page-break-after:auto}
+h1{font-size:22px;margin:0 0 8px;border-bottom:2px solid #333;padding-bottom:6px;letter-spacing:.04em}
+.infoTable{width:100%;border-collapse:collapse;margin-top:8px;font-size:12.5px;table-layout:fixed}
+.infoTable th,.infoTable td{border:1px solid #bbb;padding:6px 8px;text-align:left;vertical-align:top}
+.infoTable th{width:120px;background:#f3f0f7;font-weight:700}
+.contentCell{white-space:pre-wrap;min-height:42px}
+.photoGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;page-break-inside:avoid}
+.photoBox{border:1px solid #bbb;border-radius:8px;padding:8px;min-height:245px;background:#fff;display:flex;flex-direction:column;page-break-inside:avoid}
+.photoTitle{font-weight:700;font-size:13px;margin-bottom:6px;text-align:center;background:#f3f0f7;border-radius:6px;padding:5px}
+.photoBox img{width:100%;height:195px;object-fit:contain;border:1px solid #ddd;border-radius:6px;background:#fafafa}
+.noPhoto{height:195px;border:1px dashed #bbb;border-radius:6px;display:grid;place-items:center;color:#777;background:#fafafa;font-size:15px}
+@page{size:A4 portrait;margin:0}
+@media print{body{padding:0}.photoBox{break-inside:avoid}.photoGrid{break-inside:avoid}}
+</style></head><body>${list.map(archiveDetailPdfPage).join('')}<script>
+function printAfterImages(){const imgs=[...document.images];if(!imgs.length){window.print();return;}let left=imgs.length;const done=()=>{left--;if(left<=0)setTimeout(()=>window.print(),150);};imgs.forEach(img=>{if(img.complete)done();else{img.onload=done;img.onerror=done;}});setTimeout(()=>window.print(),3000);}
+window.onload=printAfterImages;
+<\/script></body></html>`;
+  const w=window.open('', '_blank');
+  if(!w){alert('ポップアップがブロックされています。ブラウザの設定を確認してください。');return;}
+  w.document.open();w.document.write(body);w.document.close();
+}
 
 $('loginBtn').onclick=login; 
 $('logoutBtn').onclick=logout;
